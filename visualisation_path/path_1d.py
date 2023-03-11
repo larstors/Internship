@@ -101,6 +101,8 @@ x0 = -1
 
 # a, b, c for the potential
 
+# initial and final time
+
 
 x = np.linspace(-1, 1, 1000)
 
