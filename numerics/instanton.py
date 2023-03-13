@@ -300,6 +300,8 @@ class NG_no_memory:
         # potential
         if pot == "m":
             self.potential = self.Pot_mexico
+        elif pot == "p":
+            self.potential = self.Pot_paper
         # TODO add more potentials (skewed, or other?)
 
         # system parameters
@@ -317,6 +319,9 @@ class NG_no_memory:
             np.ndarray: value of potential at positions
         """
         return x**4 / 4 - x**2 / 2
+
+    def Pot_paper(self, x):
+        return x**4 - 6*x**2 - 2*x + 5
 
     def Phi_gauss(self, x):
         """characteristic function for gaussian distribution
@@ -387,7 +392,7 @@ class NG_no_memory:
         output1 = (
             s[1] * self.D1
             - misc.derivative(self.potential, s[0], dx=self.dx)
-            + self.lamb * self.a * misc.derivative(self.phi, s[1] * self.a, dx=self.dx)
+            + self.lamb * self.a * misc.derivative(self.phi, s[1], dx=self.dx)
         )
 
         # k
@@ -426,28 +431,44 @@ class NG_no_memory:
         y = np.zeros((2, t.size))
         # apply initial guess
         y[0, 0] = self.boundary_cond[0]
-        # y[1, 0] = self.boundary_cond[2]
+        y[1, 0] = self.boundary_cond[2]
 
-        result = solve_bvp(self.F, self.Residuals, t, y, p=[0.2], verbose=2)
+        result = solve_bvp(self.F, self.Residuals, t, y, p=[2], verbose=2)
 
         print(result.message)
         return result, t
 
 
-mem = NG_memory(lam=1, a=1, maxtime=10, noise="d", number_timestep=30)
-mem_G = NG_memory(lam=0, a=1, maxtime=10, noise="d", number_timestep=30)
-instanton_mem, t = mem.instanton()
-instanton_mem_G, t = mem_G.instanton()
+# mem = NG_memory(lam=1, a=1, maxtime=10, noise="d", number_timestep=30)
+# mem_G = NG_memory(lam=0, a=1, maxtime=10, noise="d", number_timestep=30)
+# instanton_mem, t = mem.instanton()
+# instanton_mem_G, t = mem_G.instanton()
 
-nomem = NG_no_memory(lam=1, a=1, maxtime=10, noise="d", number_timestep=30)
+nomem_t = NG_no_memory(lam=0.01, a=1, maxtime=10, noise="t", number_timestep=30)
+
+nomem_e = NG_no_memory(lam=0.01, a=1, maxtime=10, noise="e", number_timestep=30)
+
+nomem_g = NG_no_memory(lam=0.01, a=1, maxtime=10, noise="g", number_timestep=30)
+
+nomem = NG_no_memory(lam=0.01, a=1, maxtime=10, noise="d", number_timestep=30)
+
 nomem_G = NG_no_memory(lam=0, a=1, maxtime=10, noise="d", number_timestep=30)
+
 instanton_no_mem, t = nomem.instanton()
+instanton_no_mem_t, t = nomem_t.instanton()
+instanton_no_mem_e, t = nomem_e.instanton()
+instanton_no_mem_g, t = nomem_g.instanton()
+
 instanton_no_mem_G, t = nomem_G.instanton()
 
 
-plt.plot(t, instanton_mem.sol(t)[0], label="OU, NG")
+#plt.plot(t, instanton_mem.sol(t)[0], label="OU, NG")
 # plt.plot(t, instanton_mem_G.sol(t)[0], "--", label="OU, Gaussian")
 plt.plot(t, instanton_no_mem.sol(t)[0], label="non-OU, NG")
+plt.plot(t, instanton_no_mem_t.sol(t)[0], label="non-OU, NG")
+#plt.plot(t, instanton_no_mem_e.sol(t)[0], label="non-OU, NG")
+plt.plot(t, instanton_no_mem_g.sol(t)[0], label="non-OU, NG")
+
 plt.plot(t, instanton_no_mem_G.sol(t)[0], "--", label="non-OU, Gaussian")
 
 plt.legend()
