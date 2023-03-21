@@ -155,54 +155,79 @@ class NG_memory:
         """
         return 0.5 * x**2 + self.b * x**4
 
-    def F(self, t, s, p):
-        """System function
 
-        Args:
-            t (np.ndarray): time
-            s (np.ndarray): system array
-            p (list): initial parameters to be determined
+def Pot_mexico(x):
+    """*mexican* hat potential
 
-        Returns:
-            np.ndarray: system equations
-        """
-        q, y, k1, k2 = s
-        # q coordinate
-        dqdt = +k1 * self.D1 + y - misc.derivative(self.potential, q, dx=self.dx)
+    Args:
+        x (np.ndarray): position
 
-        # y coordinate
-        dydt = (
-            -self.kappa * y
-            + self.D2 * k2
-            + self.lamb * self.a * misc.derivative(self.phi, k2 * self.a, dx=self.dx)
-        )
-
-        # k1
-        dk1dt = k1 * misc.derivative(self.potential, q, self.dx, n=2)
-
-        # k2
-        dk2dt = -k1 + self.kappa * k2
-
-        # output
-        return dqdt, dydt, dk1dt, dk2dt
-
-    @np.vectorize
-    def shooting_eval(p0, self):
-        sol = solve_ivp(
-            self.F,
-            (0, self.maxtime),
-            (self.boundary_cond[0], p0[0], p0[1], self.boundary_cond[2]),
-            t_eval=np.linspace(0, self.maxtime, self.number_timestep),
-        )
-        y_num, v = sol.y
-        return y_num[-1]
-
-    def optimal_initial(self):
-        p0 = optimize.newton(self.shooting_eval, x0=np.array([0.2, 0.2]), args=())
-        return p0
+    Returns:
+        np.ndarray: value of potential at positions
+    """
+    return x**4 / 4 - x**2 / 2
 
 
-test = NG_memory(lam=0, noise="d")
-opt = test.optimal_initial()
+def Phi_delta(x):
+    """characteristic function for symmetric delta distributed
 
-print(opt)
+    Args:
+        x (float): position at which to evaluate the characteric function
+
+    Returns:
+        float: value of characteristic function
+    """
+    return np.cosh(x) - 1
+
+
+def F(
+    t,
+    s,
+    a=10.0,
+    b=1.2,
+    sigma=1.0,
+    lamb=0.01,
+    D1=1.0,
+    D2=1.0,
+    kappa=1.0,
+    phi=Phi_delta,
+    dx=1e-4,
+    potential=Pot_mexico,
+):
+    """System function
+
+    Args:
+        t (np.ndarray): time
+        s (np.ndarray): system array
+        p (list): initial parameters to be determined
+
+    Returns:
+        np.ndarray: system equations
+    """
+    q, k1, = s
+    # q coordinate
+    dqdt = + k1 * D1 - misc.derivative(potential, q, dx=dx) + lamb * a * misc.derivative(phi, k1 * a, dx=dx)
+
+    # k1
+    dk1dt = k1 * misc.derivative(potential, q, dx, n=2)
+
+    # output
+    return dqdt, dk1dt
+
+
+@np.vectorize
+def shooting_eval(x, maxtime=10, number_timestep=100):
+    sol = solve_ivp(
+        F,
+        (0, maxtime),
+        (-1, x),
+        t_eval=np.linspace(0, maxtime, number_timestep),
+    )
+    q, k1 = sol.y
+    return q[-1]
+
+
+p0 = optimize.newton(shooting_eval, 0.2)
+
+
+print(p0)

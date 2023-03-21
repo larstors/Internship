@@ -172,7 +172,7 @@ class NG_memory:
         """
         # q coordinate
         output1 = (
-            +s[2] * self.D1 + s[1] - misc.derivative(self.potential, s[0], dx=self.dx)
+            s[2] * self.D1 + s[1] - misc.derivative(self.potential, s[0], dx=self.dx)
         )
 
         # y coordinate
@@ -321,7 +321,7 @@ class NG_no_memory:
         return x**4 / 4 - x**2 / 2
 
     def Pot_paper(self, x):
-        return x**4 - 6*x**2 - 2*x + 5
+        return x**4 - 6 * x**2 - 2 * x + 5
 
     def Phi_gauss(self, x):
         """characteristic function for gaussian distribution
@@ -332,7 +332,7 @@ class NG_no_memory:
         Returns:
             float: value of characteristic function
         """
-        return np.exp(- x**2 * self.sigma**2 / 2.0) - 1
+        return np.exp(-(x**2) * self.sigma**2 / 2.0) - 1
 
     def Phi_delta(self, x):
         """characteristic function for symmetric delta distributed
@@ -392,7 +392,7 @@ class NG_no_memory:
         output1 = (
             s[1] * self.D1
             - misc.derivative(self.potential, s[0], dx=self.dx)
-            + self.lamb * self.a * misc.derivative(self.phi, s[1]* self.a, dx=self.dx)
+            + self.lamb * self.a * misc.derivative(self.phi, s[1] * self.a, dx=self.dx)
         )
 
         # k
@@ -418,7 +418,8 @@ class NG_no_memory:
         return res
 
     def guess(self, x):
-        return - 1/(1 + np.exp(x-5))
+        return -1 / (1 + np.exp(x - 5))
+
     def instanton(self):
         """Function to recover the instanton of the system given some initial conditions. The method used is the
         boundary value problem solver by scipy, see shooting method
@@ -432,13 +433,22 @@ class NG_no_memory:
         # value array
         y = np.zeros((2, t.size))
         # apply initial guess
-        y[0] = self.guess(t)
+        # y[0] = self.guess(t)
         y[0, 0] = self.boundary_cond[0]
         y[1, 0] = self.boundary_cond[2]
 
-        result = solve_bvp(self.F, self.Residuals, t, y, p=[self.boundary_cond[2]], verbose=2, max_nodes = 3500)
+        result = solve_bvp(
+            self.F,
+            self.Residuals,
+            t,
+            y,
+            p=[self.boundary_cond[2]],
+            verbose=2,
+            max_nodes=3500,
+        )
 
         print(result.message)
+        print(result.p)
         return result, t
 
 
@@ -448,35 +458,68 @@ class NG_no_memory:
 # instanton_mem_G, t = mem_G.instanton()
 
 nsteps = 100
-boundary = [-1, 0, 0]
-l = 0.01
-a = 10
+boundary = [-1, 0, 0.2]
+l = 1
+a = 1
 
 
-# nomem_t = NG_no_memory(lam=l, a=a, maxtime=10, noise="t", number_timestep=nsteps, b=0.5, pot="m", boundary_cond=boundary)
+nomem_t = NG_no_memory(
+    lam=l,
+    a=a,
+    maxtime=10,
+    noise="t",
+    number_timestep=nsteps,
+    b=0.5,
+    pot="m",
+    boundary_cond=boundary,
+)
 
-# nomem_e = NG_no_memory(lam=l, a=a, maxtime=10, noise="e", number_timestep=nsteps, pot="m", boundary_cond=boundary)
+nomem_e = NG_no_memory(
+    lam=l,
+    a=a,
+    maxtime=10,
+    noise="e",
+    number_timestep=nsteps,
+    pot="m",
+    boundary_cond=boundary,
+)
 
-nomem_g = NG_no_memory(lam=0, a=a, maxtime=10, noise="g", number_timestep=nsteps, pot="m", boundary_cond=boundary)
+nomem_g = NG_no_memory(
+    lam=0,
+    a=a,
+    maxtime=10,
+    noise="g",
+    number_timestep=nsteps,
+    pot="m",
+    boundary_cond=boundary,
+)
 
-nomem = NG_no_memory(lam=l, a=a, maxtime=10, noise="d", number_timestep=nsteps, pot="m", boundary_cond=boundary)
+nomem = NG_no_memory(
+    lam=l,
+    a=a,
+    maxtime=10,
+    noise="d",
+    number_timestep=nsteps,
+    pot="m",
+    boundary_cond=boundary,
+)
 
-#nomem_ga = NG_no_memory(lam=l, a=a, maxtime=10, noise="ga", number_timestep=nsteps, b=1.2, pot="m", boundary_cond=boundary)
+# nomem_ga = NG_no_memory(lam=l, a=a, maxtime=10, noise="ga", number_timestep=nsteps, b=1.2, pot="m", boundary_cond=boundary)
 
 instanton_no_mem, t = nomem.instanton()
-# instanton_no_mem_t, t = nomem_t.instanton()
-# instanton_no_mem_e, t = nomem_e.instanton()
+instanton_no_mem_t, t = nomem_t.instanton()
+instanton_no_mem_e, t = nomem_e.instanton()
 instanton_no_mem_g, t = nomem_g.instanton()
 
-#instanton_no_mem_ga, t = nomem_ga.instanton()
+# instanton_no_mem_ga, t = nomem_ga.instanton()
 
 
-#plt.plot(t, instanton_mem.sol(t)[0], label="OU, NG")
+# plt.plot(t, instanton_mem.sol(t)[0], label="OU, NG")
 # plt.plot(t, instanton_mem_G.sol(t)[0], "--", label="OU, Gaussian")
 plt.plot(t, instanton_no_mem.sol(t)[0], label="non-OU, const")
 #plt.plot(t, instanton_no_mem_t.sol(t)[0], label="non-OU, trunated")
 #plt.plot(t, instanton_no_mem_e.sol(t)[0], label="non-OU, exp")
-#plt.plot(t, instanton_no_mem_ga.sol(t)[0], label="non-OU, gamma")
+# plt.plot(t, instanton_no_mem_ga.sol(t)[0], label="non-OU, gamma")
 
 plt.plot(t, instanton_no_mem_g.sol(t)[0], "--", label=r"non-OU, $\lambda=0$")
 
@@ -485,4 +528,22 @@ plt.grid()
 plt.xlabel(r"$t$")
 plt.ylabel(r"$q$")
 
+
 plt.show()
+
+
+
+
+
+
+
+quest = []
+
+for i in range(1, 100, 1):
+    xg = 0.01 * i
+    nomem.boundary_cond[2] = xg
+    solution, t = nomem.instanton()
+    quest.append(solution.sol(t)[1, 0])
+
+for i in range(len(quest)):
+    print(quest[i])
