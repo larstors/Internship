@@ -22,7 +22,7 @@ class NG_memory:
         a=10.0,
         b=2.0,
         sigma=1.0,
-        lam=1.0,
+        lam=0.01,
         D1=1.0,
         D2=1.0,
         kappa=1.0,
@@ -159,20 +159,19 @@ class NG_memory:
         """
         return 0.5 * x**2 + self.b * x**4
 
-    def F(self, t, s, p):
+    def F(self, t, s):
         """System function
 
         Args:
             t (np.ndarray): time
             s (np.ndarray): system array
-            p (list): initial parameters to be determined
 
         Returns:
             np.ndarray: system equations
         """
         # q coordinate
         output1 = (
-            s[2] * self.D1 + s[1] - misc.derivative(self.potential, s[0], dx=self.dx)
+            s[2] * self.D1 - misc.derivative(self.potential, s[0], dx=self.dx) + s[1]
         )
 
         # y coordinate
@@ -191,27 +190,26 @@ class NG_memory:
         # output
         return np.vstack((output1, output2, output3, output4))
 
-    def Residuals(self, ini, fin, p):
+    def Residuals(self, ini, fin):
         """Residuals for boundary conditions
 
         Args:
             ini (np.ndarray): initial values
             fin (np.ndarray): final values
-            p (list): initial parameters to be determined
 
         Returns:
             np.ndarray: residuals
         """
-        k = p[0]
-        k2 = p[1]
-        res = np.zeros(6)
+        # k = p[0]
+        # k2 = p[1]
+        res = np.zeros(4)
         res[0] = ini[0] - self.boundary_cond[0]
         res[1] = fin[0] - self.boundary_cond[1]
         res[2] = ini[3] - self.boundary_cond[2]
         res[3] = fin[3] - self.boundary_cond[3]
 
-        res[4] = ini[1] - k
-        res[5] = ini[2] - k2
+        # res[4] = ini[1] - k
+        # res[5] = ini[2] - k2
         return res
 
     def instanton(self):
@@ -229,11 +227,50 @@ class NG_memory:
         # apply initial guess
         y[0, 0] = self.boundary_cond[0]
         y[3, 0] = self.boundary_cond[2]
+        y[1, 0] = self.boundary_cond[4]
+        y[2, 0] = self.boundary_cond[5]
 
-        result = solve_bvp(self.F, self.Residuals, t, y, p=[0.2, 0.2], verbose=2)
+        result = solve_bvp(self.F, self.Residuals, t, y, verbose=2)
 
         print(result.message)
+        # print(result.p)
+        # print(self.boundary_cond)
         return result, t
+
+    def action(self, dt, q, y, k1, k2):
+        """function to calculate the stochastic action using the Ito formalism
+
+        Args:
+            dt (float): time step width
+            q (np.ndarray): position
+            y (np.ndarray): OU-part of noise correlator
+            k1 (np.ndarray): conjugate variable to q
+            k2 (np.ndarray): conjugate variable to y
+
+        Returns:
+            float: value of (discrete) MSR action of system
+        """
+        # dimension
+        m = len(q) - 1
+
+        # derivatives
+        qdot = np.zeros(m)
+        ydot = np.zeros(m)
+
+        qdot[:] = (q[1:] - q[:-1]) / dt
+        ydot[:] = (y[1:] - y[:-1]) / dt
+
+        # action
+        S = (
+            np.dot(k1[:-1], qdot + misc.derivative(self.potential, q[:-1]) - y[:-1])
+            + np.dot(k2[:-1], ydot + self.kappa * y[:-1])
+            - self.D1 / 2 * np.dot(k1[:-1], k1[:-1])
+            - self.D2 / 2 * np.dot(k2[:-1], k2[:-1])
+            - self.lamb * np.dot(np.ones(m), self.phi(k2[:-1] * self.a))
+        )
+
+        # return the action
+        return S * dt
 
 
 class NG_no_memory:
@@ -378,7 +415,7 @@ class NG_no_memory:
         """
         return 0.5 * x**2 + self.b * x**4
 
-    def F(self, t, s, p):
+    def F(self, t, s):
         """System function
 
         Args:
@@ -401,7 +438,7 @@ class NG_no_memory:
         # output
         return np.vstack((output1, output2))
 
-    def Residuals(self, ini, fin, p):
+    def Residuals(self, ini, fin):
         """Residuals for boundary conditions
 
         Args:
@@ -411,10 +448,10 @@ class NG_no_memory:
         Returns:
             np.ndarray: residuals
         """
-        res = np.zeros(3)
+        res = np.zeros(2)
         res[0] = ini[0] - self.boundary_cond[0]
         res[1] = fin[0] - self.boundary_cond[1]
-        res[2] = ini[1] - p[0]
+        # res[2] = ini[1] - p[0]
         return res
 
     def guess(self, x):
@@ -442,14 +479,42 @@ class NG_no_memory:
             self.Residuals,
             t,
             y,
-            p=[self.boundary_cond[2]],
             verbose=2,
             max_nodes=3500,
         )
 
         print(result.message)
-        print(result.p)
+        # print(result.p)
         return result, t
+
+    def action(self, dt, q, k1):
+        """function to calculate the stochastic action using the Ito formalism
+
+        Args:
+            dt (float): time step width
+            q (np.ndarray): position
+            k1 (np.ndarray): conjugate variable to q
+
+        Returns:
+            float: (discrete) MSR action of system
+        """
+        # dimension
+        m = len(q) - 1
+
+        # derivatives
+        qdot = np.zeros(m)
+
+        qdot[:] = (q[1:] - q[:-1]) / dt
+
+        # action
+        S = (
+            np.dot(k1[:-1], qdot + misc.derivative(self.potential, q[:-1]))
+            - self.D1 / 2 * np.dot(k1[:-1], k1[:-1])
+            - self.lamb * np.dot(np.ones(m), self.phi(k1[:-1] * self.a))
+        )
+
+        # return the action
+        return S * dt
 
 
 # mem = NG_memory(lam=1, a=1, maxtime=10, noise="d", number_timestep=30)
@@ -474,16 +539,6 @@ nomem_t = NG_no_memory(
     boundary_cond=boundary,
 )
 
-nomem_e = NG_no_memory(
-    lam=l,
-    a=a,
-    maxtime=10,
-    noise="e",
-    number_timestep=nsteps,
-    pot="m",
-    boundary_cond=boundary,
-)
-
 nomem_g = NG_no_memory(
     lam=0,
     a=a,
@@ -504,21 +559,17 @@ nomem = NG_no_memory(
     boundary_cond=boundary,
 )
 
-# nomem_ga = NG_no_memory(lam=l, a=a, maxtime=10, noise="ga", number_timestep=nsteps, b=1.2, pot="m", boundary_cond=boundary)
 
 instanton_no_mem, t = nomem.instanton()
 instanton_no_mem_t, t = nomem_t.instanton()
-instanton_no_mem_e, t = nomem_e.instanton()
 instanton_no_mem_g, t = nomem_g.instanton()
-
-# instanton_no_mem_ga, t = nomem_ga.instanton()
 
 
 # plt.plot(t, instanton_mem.sol(t)[0], label="OU, NG")
 # plt.plot(t, instanton_mem_G.sol(t)[0], "--", label="OU, Gaussian")
 plt.plot(t, instanton_no_mem.sol(t)[0], label="non-OU, const")
-#plt.plot(t, instanton_no_mem_t.sol(t)[0], label="non-OU, trunated")
-#plt.plot(t, instanton_no_mem_e.sol(t)[0], label="non-OU, exp")
+# plt.plot(t, instanton_no_mem_t.sol(t)[0], label="non-OU, trunated")
+# plt.plot(t, instanton_no_mem_e.sol(t)[0], label="non-OU, exp")
 # plt.plot(t, instanton_no_mem_ga.sol(t)[0], label="non-OU, gamma")
 
 plt.plot(t, instanton_no_mem_g.sol(t)[0], "--", label=r"non-OU, $\lambda=0$")
@@ -528,22 +579,152 @@ plt.grid()
 plt.xlabel(r"$t$")
 plt.ylabel(r"$q$")
 
+print(instanton_no_mem.p)
+# plt.show()
 
+
+# make array of initial guesses
+
+
+guesses = np.array([1e-2 * i for i in range(0, 7)])
+
+solutions = []
+
+action = []
+
+fig2 = plt.figure()
+for i in guesses:
+    boundary = [-1, 0, i]
+
+    guess_class = NG_no_memory(
+        lam=l,
+        a=a,
+        noise="d",
+        boundary_cond=boundary,
+        b=0.5,
+        pot="m",
+        number_timestep=nsteps,
+        maxtime=10,
+    )
+    guess_class_l0 = NG_no_memory(
+        lam=0,
+        a=a,
+        noise="d",
+        boundary_cond=boundary,
+        pot="m",
+        number_timestep=nsteps,
+        maxtime=10,
+    )
+
+    y, t = guess_class.instanton()
+    yl, tl = guess_class_l0.instanton()
+    S = guess_class.action(t[1] - t[0], y.sol(t)[0], y.sol(t)[1])
+    action.append(S)
+    # if (y.p[0] < 0.01 and y.p[0] > 0):
+    # plt.plot(t, y.sol(t)[0], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
+    # plt.plot(tl, yl.sol(tl)[0], "--")
+    # plt.plot(t, y.sol(t)[1], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
+    # plt.plot(tl, yl.sol(tl)[1], "--", label="g=%g, p=%g" % (i, yl.sol(tl)[1, -1]))
+    # solutions.append(y.p[0])
+    plt.plot(y.sol(t)[0], y.sol(t)[1], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
+plt.xlabel(r"$t$")
+plt.ylabel(r"$q$")
+plt.grid()
+plt.legend()
 plt.show()
 
+fig_action = plt.figure()
+
+plt.plot(guesses, action, "-x")
+plt.ylabel(r"$S[q, k_1]$")
+plt.xlabel(r"Initial guess for $k_1$")
+plt.grid()
+plt.show()
+
+"""
+No Memory
+Optimal paratmeter for lambda=0 seems to be in the range 0.00267308-0.00412278, so say optimum is at 0.332899
+for lambda = 0.01 and 
+    -   delta noise we instead get 0.00546838-0.00699686, so say optimum at 0.00630584
+    -   exponential
+    -   truncated
+    -   gamma
+    -   Gaussian
+"""
 
 
+# x = np.argwhere(solutions < )
+
+# solutions = np.array(solutions)
+# solutions = solutions[solutions<1]
+
+# fig3 = plt.figure()
+# plt.hist(solutions, bins=10)
+# plt.show()
 
 
+# fig4 = plt.figure()
+# guess_class = NG_no_memory(lam=l, a=a, noise="e", boundary_cond=[-1, 0, 0.06], pot="m", number_timestep=nsteps, maxtime=10)
+# guess_class_l0 = NG_no_memory(lam=0, a=a, noise="d", boundary_cond=boundary, pot="m", number_timestep=nsteps, maxtime=10)
+# y, t = guess_class.instanton()
+# plt.plot(t, y.sol(t)[0], label="g=%g, p=%g" % (i, y.p))
+# plt.show()
 
 
-quest = []
+"""
+# ######################################### MEMORY #############################################
 
-for i in range(1, 100, 1):
-    xg = 0.01 * i
-    nomem.boundary_cond[2] = xg
-    solution, t = nomem.instanton()
-    quest.append(solution.sol(t)[1, 0])
+so if I see this correctly, we need to introduce a 2d grid search instead of a 1D, which sounds a lot more inefficient
+"""
 
-for i in range(len(quest)):
-    print(quest[i])
+
+# TODO look for more efficient methods
+
+
+nsteps = 100
+boundary = [-1, 0, 0, 0]
+l = 1
+a = 10
+
+wow = 3
+
+guess1 = np.array([1e-2 * i for i in range(wow)])
+guess2 = np.array([1e-2 * i for i in range(wow)])
+
+action = []
+
+fig5 = plt.figure()
+for i in guess1:
+    for j in guess2:
+        boundary = [-1, 0, 0, 0, i, j]
+        sol = NG_memory(
+            lam=l,
+            a=a,
+            kappa=0.1,
+            maxtime=10,
+            noise="d",
+            b=0.5,
+            number_timestep=200,
+            pot="m",
+            boundary_cond=boundary,
+        )
+
+        y, t = sol.instanton()
+        plt.plot(t, y.sol(t)[0], label=r"$g1=%g, g2=%g$" % (i, j))
+        S = sol.action(t[1] - t[0], y.sol(t)[0], y.sol(t)[1], y.sol(t)[2], y.sol(t)[3])
+        action.append(S)
+
+
+S = np.asarray(action).reshape(wow, wow)
+
+
+fig_action = plt.figure()
+plt.imshow(S)
+cbar = plt.colorbar(
+    orientation="vertical",
+)
+cbar.ax.set_ylabel(r"$S[q, y, k_1, k_2]$", rotation=270)
+plt.xlabel(r"Initial guess for $y$")
+plt.ylabel(r"Initial guess for $k_1$")
+plt.grid()
+plt.show()
