@@ -4,6 +4,7 @@ import scipy.misc as misc
 from scipy.optimize import fsolve
 from scipy.integrate import solve_bvp
 
+# plt.rcParams.update({"font.size": 8})
 
 """
 Scipt for finding instanton of a OU-process with non-Gaussian noise
@@ -32,6 +33,7 @@ class NG_memory:
         boundary_cond=[-1, 0, 0, 0],
         number_timestep=30,
         maxtime=1.0,
+        coupling=1.0,
     ):
         """Initialisation of the class
 
@@ -92,6 +94,9 @@ class NG_memory:
         self.boundary_cond = boundary_cond
         self.number_timestep = number_timestep
         self.maxtime = maxtime
+
+        # coupling of the y dimension to the q dimension
+        self.coupling = coupling
 
     def Pot_mexico(self, x):
         """*mexican* hat potential
@@ -171,7 +176,9 @@ class NG_memory:
         """
         # q coordinate
         output1 = (
-            s[2] * self.D1 - misc.derivative(self.potential, s[0], dx=self.dx) + s[1]
+            s[2] * self.D1
+            - misc.derivative(self.potential, s[0], dx=self.dx)
+            + s[1] * self.coupling
         )
 
         # y coordinate
@@ -185,7 +192,7 @@ class NG_memory:
         output3 = s[2] * misc.derivative(self.potential, s[0], self.dx, n=2)
 
         # k2
-        output4 = -s[2] + self.kappa * s[3]
+        output4 = -s[2] * self.coupling + self.kappa * s[3]
 
         # output
         return np.vstack((output1, output2, output3, output4))
@@ -207,7 +214,7 @@ class NG_memory:
         res[1] = fin[0] - self.boundary_cond[1]
         res[2] = ini[3] - self.boundary_cond[2]
         res[3] = fin[3] - self.boundary_cond[3]
-
+        # res[3] = ini[1] - 0
         # res[4] = ini[1] - k
         # res[5] = ini[2] - k2
         return res
@@ -225,10 +232,10 @@ class NG_memory:
         # value array
         y = np.zeros((4, t.size))
         # apply initial guess
-        y[0, 0] = self.boundary_cond[0]
-        y[3, 0] = self.boundary_cond[2]
-        y[1, 0] = self.boundary_cond[4]
-        y[2, 0] = self.boundary_cond[5]
+        y[0, 0] = self.boundary_cond[0]  # q
+        y[3, 0] = self.boundary_cond[2]  # k_2
+        y[1, 0] = self.boundary_cond[4]  # y
+        y[2, 0] = self.boundary_cond[5]  # k_1
 
         result = solve_bvp(self.F, self.Residuals, t, y, verbose=2)
 
@@ -631,7 +638,6 @@ plt.xlabel(r"$t$")
 plt.ylabel(r"$q$")
 plt.grid()
 plt.legend()
-plt.show()
 
 fig_action = plt.figure()
 
@@ -639,7 +645,6 @@ plt.plot(guesses, action, "-x")
 plt.ylabel(r"$S[q, k_1]$")
 plt.xlabel(r"Initial guess for $k_1$")
 plt.grid()
-plt.show()
 
 """
 No Memory
@@ -682,37 +687,64 @@ so if I see this correctly, we need to introduce a 2d grid search instead of a 1
 
 
 nsteps = 100
-boundary = [-1, 0, 0, 0]
-l = 1
+l = 0.01
 a = 10
 
-wow = 3
+wow = 4
 
-guess1 = np.array([1e-2 * i for i in range(wow)])
-guess2 = np.array([1e-2 * i for i in range(wow)])
+guess1 = np.array([-1.6 * 0 for i in range(wow)])
+guess2 = np.array([1e-1 * i for i in range(wow)])
+
+sol_nm = NG_no_memory(a=a, lam=0, pot="m", number_timestep=200, maxtime=10)
+y_nm, t_nm = sol_nm.instanton()
 
 action = []
 
-fig5 = plt.figure()
+fig5, ax = plt.subplots(nrows=2, ncols=2, sharex=True, figsize=(15, 15))
+# plt.tight_layout()
 for i in guess1:
     for j in guess2:
-        boundary = [-1, 0, 0, 0, i, j]
+        boundary = [-1.0, 0, 0, 0, i, j]
         sol = NG_memory(
             lam=l,
             a=a,
-            kappa=0.1,
+            kappa=1.0,
             maxtime=10,
             noise="d",
             b=0.5,
             number_timestep=200,
             pot="m",
             boundary_cond=boundary,
+            coupling=1.0,
         )
 
+        print(boundary)
+
         y, t = sol.instanton()
-        plt.plot(t, y.sol(t)[0], label=r"$g1=%g, g2=%g$" % (i, j))
+        ax[0, 0].plot(t, y.sol(t)[0], label=r"$y=%g, k_1=%g$" % (i, j))
+        ax[0, 1].plot(t, y.sol(t)[1])
+        ax[1, 0].plot(t, y.sol(t)[2])
+        ax[1, 1].plot(t, y.sol(t)[3])
+
         S = sol.action(t[1] - t[0], y.sol(t)[0], y.sol(t)[1], y.sol(t)[2], y.sol(t)[3])
         action.append(S)
+
+ax[0, 0].plot(t_nm, y_nm.sol(t)[0], label="AP-traj")
+
+ax[0, 0].set_ylabel(r"$q$")
+ax[0, 1].set_ylabel(r"$y$")
+ax[1, 0].set_ylabel(r"$k_1$")
+ax[1, 1].set_ylabel(r"$k_2$")
+ax[0, 0].grid()
+ax[0, 1].grid()
+ax[1, 0].grid()
+ax[1, 1].grid()
+
+ax[1, 0].set_xlabel(r"$t$")
+ax[1, 1].set_xlabel(r"$t$")
+ax[0, 0].legend(loc="lower right")
+
+plt.savefig("OU_traj.pdf", dpi=500, bbox_inches="tight")
 
 
 S = np.asarray(action).reshape(wow, wow)
@@ -727,4 +759,4 @@ cbar.ax.set_ylabel(r"$S[q, y, k_1, k_2]$", rotation=270)
 plt.xlabel(r"Initial guess for $y$")
 plt.ylabel(r"Initial guess for $k_1$")
 plt.grid()
-plt.show()
+plt.savefig("OU_action.pdf", dpi=500, bbox_inches="tight")
