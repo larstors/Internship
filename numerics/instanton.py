@@ -26,7 +26,7 @@ class NG_memory:
         lam=0.01,
         D1=1.0,
         D2=1.0,
-        kappa=1.0,
+        tau=1.0,
         noise="g",
         pot="m",
         dx=1e-4,
@@ -44,7 +44,7 @@ class NG_memory:
             lam (float, optional): poisson shot noise rate. Defaults to 1.0.
             D1 (float, optional): gaussian noise variance on q. Defaults to 1.0.
             D2 (float, optional): gaussian noise variance on y. Defaults to 1.0.
-            kappa (float, optional): inverse OU memory timescale. Defaults to 1.0.
+            tau (float, optional): inverse OU memory timescale. Defaults to 1.0.
             noise (str, optional): type amplitude distribution, choice between:
                     g for Gaussian,
                     d for delta,
@@ -66,7 +66,7 @@ class NG_memory:
         self.lamb = lam
         self.D1 = D1
         self.D2 = D2
-        self.kappa = kappa
+        self.tau = tau
         self.dx = dx
 
         # noise parameters (if needed)
@@ -182,9 +182,9 @@ class NG_memory:
         )
 
         # y coordinate
-        output2 = (
-            -self.kappa * s[1]
-            + self.D2 * s[3]
+        output2 = self.tau ** (-1) *(
+            - s[1]
+            +  self.D2 * s[3]
             + self.lamb * self.a * misc.derivative(self.phi, s[3] * self.a, dx=self.dx)
         )
 
@@ -192,7 +192,7 @@ class NG_memory:
         output3 = s[2] * misc.derivative(self.potential, s[0], self.dx, n=2)
 
         # k2
-        output4 = -s[2] * self.coupling + self.kappa * s[3]
+        output4 = self.tau ** (-1) * (-s[2] * self.coupling + s[3])
 
         # output
         return np.vstack((output1, output2, output3, output4))
@@ -270,7 +270,7 @@ class NG_memory:
         # action
         S = (
             np.dot(k1[:-1], qdot + misc.derivative(self.potential, q[:-1]) - y[:-1])
-            + np.dot(k2[:-1], ydot + self.kappa * y[:-1])
+            + np.dot(k2[:-1], self.tau * ydot +  y[:-1])
             - self.D1 / 2 * np.dot(k1[:-1], k1[:-1])
             - self.D2 / 2 * np.dot(k2[:-1], k2[:-1])
             - self.lamb * np.dot(np.ones(m), self.phi(k2[:-1] * self.a))
@@ -708,7 +708,7 @@ for i in guess1:
         sol = NG_memory(
             lam=l,
             a=a,
-            kappa=1.0,
+            tau=0.01,
             maxtime=10,
             noise="d",
             b=0.5,
