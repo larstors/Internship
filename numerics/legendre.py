@@ -416,7 +416,7 @@ class transform_nomemory:
 
         return k
 
-    def MSR_action(self, init_values):
+    def MSR_action(self, init_values, guess):
         
         delta_t = self.tmax / self.N
 
@@ -424,7 +424,7 @@ class transform_nomemory:
 
         qdot = (q[1:] - q[:-1]) / delta_t
 
-        k = self.Legendre_transform(-np.ones_like(qdot)*1e-4, qdot, q[:-1])
+        k = self.Legendre_transform(guess, qdot, q[:-1])
 
         S = 0
         
@@ -457,12 +457,13 @@ class transform_nomemory:
         """
         return t[self.N-1]
 
-    def minimize(self):
+    def minimize(self, guess=0):
         system = np.zeros(self.N)#np.linspace(-1, 0, 2 * self.N)
 
         constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}]
-
-        optimum = opt.minimize(self.MSR_action, x0=system, constraints=constraint, options={'disp': True, 'maxiter': 400})
+        if guess == 0:
+            guess = -np.ones(self.N-1)*1e-6
+        optimum = opt.minimize(self.MSR_action, x0=system, args=(guess), constraints=constraint, options={'disp': True, 'maxiter': 400})
 
         return optimum
 
@@ -607,8 +608,9 @@ S_norm_OM  = []
 S_norm_MSR = []
 
 for l in lam:
-    S_G = 2 * (0 - (-1)) / (1 + l * 10 ** 2)
     t = transform_nomemory(lambda_=l, a=10, D=1, N=N, noise="d", pot="m", tmax=tmax)
+    S_G = 2 * (t.Pot_mexico(0) - t.Pot_mexico(-1)) / (1 + l * 10 ** 2)
+
     #op = t.minimize_full()
     res = t.minimize()
     #S_norm_OM.append(op.fun/S_G)
@@ -619,6 +621,8 @@ fig3 = plt.figure()
 plt.plot(lam, S_norm_MSR, label="MSR")
 plt.xlabel(r"$\lambda$")
 plt.ylabel(r"$S_\mathrm{norm}$")
+plt.xscale("log")
 plt.grid()
 plt.legend()
+plt.axis([min(lam), max(lam), -0.1, 1.1])
 plt.savefig("S_norm.pdf", dpi=500, bbox_inches="tight")
