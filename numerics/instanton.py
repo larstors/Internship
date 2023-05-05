@@ -529,234 +529,235 @@ class NG_no_memory:
 # instanton_mem, t = mem.instanton()
 # instanton_mem_G, t = mem_G.instanton()
 
-nsteps = 100
-boundary = [-1, 0, 0.2]
-l = 1
-a = 1
+if __name__ == "main":
+    nsteps = 100
+    boundary = [-1, 0, 0.2]
+    l = 1
+    a = 1
 
 
-nomem_t = NG_no_memory(
-    lam=l,
-    a=a,
-    maxtime=10,
-    noise="t",
-    number_timestep=nsteps,
-    b=0.5,
-    pot="m",
-    boundary_cond=boundary,
-)
-
-nomem_g = NG_no_memory(
-    lam=0,
-    a=a,
-    maxtime=10,
-    noise="g",
-    number_timestep=nsteps,
-    pot="m",
-    boundary_cond=boundary,
-)
-
-nomem = NG_no_memory(
-    lam=l,
-    a=a,
-    maxtime=10,
-    noise="d",
-    number_timestep=nsteps,
-    pot="m",
-    boundary_cond=boundary,
-)
-
-
-instanton_no_mem, t = nomem.instanton()
-instanton_no_mem_t, t = nomem_t.instanton()
-instanton_no_mem_g, t = nomem_g.instanton()
-
-
-# plt.plot(t, instanton_mem.sol(t)[0], label="OU, NG")
-# plt.plot(t, instanton_mem_G.sol(t)[0], "--", label="OU, Gaussian")
-plt.plot(t, instanton_no_mem.sol(t)[0], label="non-OU, const")
-# plt.plot(t, instanton_no_mem_t.sol(t)[0], label="non-OU, trunated")
-# plt.plot(t, instanton_no_mem_e.sol(t)[0], label="non-OU, exp")
-# plt.plot(t, instanton_no_mem_ga.sol(t)[0], label="non-OU, gamma")
-
-plt.plot(t, instanton_no_mem_g.sol(t)[0], "--", label=r"non-OU, $\lambda=0$")
-
-plt.legend()
-plt.grid()
-plt.xlabel(r"$t$")
-plt.ylabel(r"$q$")
-
-print(instanton_no_mem.p)
-# plt.show()
-
-
-# make array of initial guesses
-
-
-guesses = np.array([1e-2 * i for i in range(0, 7)])
-
-solutions = []
-
-action = []
-
-fig2 = plt.figure()
-for i in guesses:
-    boundary = [-1, 0, i]
-
-    guess_class = NG_no_memory(
+    nomem_t = NG_no_memory(
         lam=l,
         a=a,
-        noise="d",
-        boundary_cond=boundary,
+        maxtime=10,
+        noise="t",
+        number_timestep=nsteps,
         b=0.5,
         pot="m",
-        number_timestep=nsteps,
-        maxtime=10,
+        boundary_cond=boundary,
     )
-    guess_class_l0 = NG_no_memory(
+
+    nomem_g = NG_no_memory(
         lam=0,
         a=a,
-        noise="d",
-        boundary_cond=boundary,
-        pot="m",
-        number_timestep=nsteps,
         maxtime=10,
+        noise="g",
+        number_timestep=nsteps,
+        pot="m",
+        boundary_cond=boundary,
     )
 
-    y, t = guess_class.instanton()
-    yl, tl = guess_class_l0.instanton()
-    S = guess_class.action(t[1] - t[0], y.sol(t)[0], y.sol(t)[1])
-    action.append(S)
-    # if (y.p[0] < 0.01 and y.p[0] > 0):
-    # plt.plot(t, y.sol(t)[0], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
-    # plt.plot(tl, yl.sol(tl)[0], "--")
-    # plt.plot(t, y.sol(t)[1], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
-    # plt.plot(tl, yl.sol(tl)[1], "--", label="g=%g, p=%g" % (i, yl.sol(tl)[1, -1]))
-    # solutions.append(y.p[0])
-    plt.plot(y.sol(t)[0], y.sol(t)[1], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
-plt.xlabel(r"$t$")
-plt.ylabel(r"$q$")
-plt.grid()
-plt.legend()
-
-fig_action = plt.figure()
-
-plt.plot(guesses, action, "-x")
-plt.ylabel(r"$S[q, k_1]$")
-plt.xlabel(r"Initial guess for $k_1$")
-plt.grid()
-
-"""
-No Memory
-Optimal paratmeter for lambda=0 seems to be in the range 0.00267308-0.00412278, so say optimum is at 0.332899
-for lambda = 0.01 and 
-    -   delta noise we instead get 0.00546838-0.00699686, so say optimum at 0.00630584
-    -   exponential
-    -   truncated
-    -   gamma
-    -   Gaussian
-"""
+    nomem = NG_no_memory(
+        lam=l,
+        a=a,
+        maxtime=10,
+        noise="d",
+        number_timestep=nsteps,
+        pot="m",
+        boundary_cond=boundary,
+    )
 
 
-# x = np.argwhere(solutions < )
-
-# solutions = np.array(solutions)
-# solutions = solutions[solutions<1]
-
-# fig3 = plt.figure()
-# plt.hist(solutions, bins=10)
-# plt.show()
+    instanton_no_mem, t = nomem.instanton()
+    instanton_no_mem_t, t = nomem_t.instanton()
+    instanton_no_mem_g, t = nomem_g.instanton()
 
 
-# fig4 = plt.figure()
-# guess_class = NG_no_memory(lam=l, a=a, noise="e", boundary_cond=[-1, 0, 0.06], pot="m", number_timestep=nsteps, maxtime=10)
-# guess_class_l0 = NG_no_memory(lam=0, a=a, noise="d", boundary_cond=boundary, pot="m", number_timestep=nsteps, maxtime=10)
-# y, t = guess_class.instanton()
-# plt.plot(t, y.sol(t)[0], label="g=%g, p=%g" % (i, y.p))
-# plt.show()
+    # plt.plot(t, instanton_mem.sol(t)[0], label="OU, NG")
+    # plt.plot(t, instanton_mem_G.sol(t)[0], "--", label="OU, Gaussian")
+    plt.plot(t, instanton_no_mem.sol(t)[0], label="non-OU, const")
+    # plt.plot(t, instanton_no_mem_t.sol(t)[0], label="non-OU, trunated")
+    # plt.plot(t, instanton_no_mem_e.sol(t)[0], label="non-OU, exp")
+    # plt.plot(t, instanton_no_mem_ga.sol(t)[0], label="non-OU, gamma")
+
+    plt.plot(t, instanton_no_mem_g.sol(t)[0], "--", label=r"non-OU, $\lambda=0$")
+
+    plt.legend()
+    plt.grid()
+    plt.xlabel(r"$t$")
+    plt.ylabel(r"$q$")
+
+    print(instanton_no_mem.p)
+    # plt.show()
 
 
-"""
-# ######################################### MEMORY #############################################
-
-so if I see this correctly, we need to introduce a 2d grid search instead of a 1D, which sounds a lot more inefficient
-"""
+    # make array of initial guesses
 
 
-# TODO look for more efficient methods
+    guesses = np.array([1e-2 * i for i in range(0, 7)])
 
+    solutions = []
 
-nsteps = 100
-l = 0.01
-a = 10
+    action = []
 
-wow = 4
+    fig2 = plt.figure()
+    for i in guesses:
+        boundary = [-1, 0, i]
 
-guess1 = np.array([-1.6 * 0 for i in range(wow)])
-guess2 = np.array([1e-1 * i for i in range(wow)])
-
-sol_nm = NG_no_memory(a=a, lam=0, pot="m", number_timestep=200, maxtime=10)
-y_nm, t_nm = sol_nm.instanton()
-
-action = []
-
-fig5, ax = plt.subplots(nrows=2, ncols=2, sharex=True, figsize=(15, 15))
-# plt.tight_layout()
-for i in guess1:
-    for j in guess2:
-        boundary = [-1.0, 0, 0, 0, i, j]
-        sol = NG_memory(
+        guess_class = NG_no_memory(
             lam=l,
             a=a,
-            tau=0.01,
-            maxtime=10,
             noise="d",
-            b=0.5,
-            number_timestep=200,
-            pot="m",
             boundary_cond=boundary,
-            coupling=1.0,
+            b=0.5,
+            pot="m",
+            number_timestep=nsteps,
+            maxtime=10,
+        )
+        guess_class_l0 = NG_no_memory(
+            lam=0,
+            a=a,
+            noise="d",
+            boundary_cond=boundary,
+            pot="m",
+            number_timestep=nsteps,
+            maxtime=10,
         )
 
-        print(boundary)
-
-        y, t = sol.instanton()
-        ax[0, 0].plot(t, y.sol(t)[0], label=r"$y=%g, k_1=%g$" % (i, j))
-        ax[0, 1].plot(t, y.sol(t)[1])
-        ax[1, 0].plot(t, y.sol(t)[2])
-        ax[1, 1].plot(t, y.sol(t)[3])
-
-        S = sol.action(t[1] - t[0], y.sol(t)[0], y.sol(t)[1], y.sol(t)[2], y.sol(t)[3])
+        y, t = guess_class.instanton()
+        yl, tl = guess_class_l0.instanton()
+        S = guess_class.action(t[1] - t[0], y.sol(t)[0], y.sol(t)[1])
         action.append(S)
+        # if (y.p[0] < 0.01 and y.p[0] > 0):
+        # plt.plot(t, y.sol(t)[0], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
+        # plt.plot(tl, yl.sol(tl)[0], "--")
+        # plt.plot(t, y.sol(t)[1], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
+        # plt.plot(tl, yl.sol(tl)[1], "--", label="g=%g, p=%g" % (i, yl.sol(tl)[1, -1]))
+        # solutions.append(y.p[0])
+        plt.plot(y.sol(t)[0], y.sol(t)[1], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
+    plt.xlabel(r"$t$")
+    plt.ylabel(r"$q$")
+    plt.grid()
+    plt.legend()
 
-ax[0, 0].plot(t_nm, y_nm.sol(t)[0], label="AP-traj")
+    fig_action = plt.figure()
 
-ax[0, 0].set_ylabel(r"$q$")
-ax[0, 1].set_ylabel(r"$y$")
-ax[1, 0].set_ylabel(r"$k_1$")
-ax[1, 1].set_ylabel(r"$k_2$")
-ax[0, 0].grid()
-ax[0, 1].grid()
-ax[1, 0].grid()
-ax[1, 1].grid()
+    plt.plot(guesses, action, "-x")
+    plt.ylabel(r"$S[q, k_1]$")
+    plt.xlabel(r"Initial guess for $k_1$")
+    plt.grid()
 
-ax[1, 0].set_xlabel(r"$t$")
-ax[1, 1].set_xlabel(r"$t$")
-ax[0, 0].legend(loc="lower right")
-
-plt.savefig("OU_traj.pdf", dpi=500, bbox_inches="tight")
-
-
-S = np.asarray(action).reshape(wow, wow)
+    """
+    No Memory
+    Optimal paratmeter for lambda=0 seems to be in the range 0.00267308-0.00412278, so say optimum is at 0.332899
+    for lambda = 0.01 and 
+        -   delta noise we instead get 0.00546838-0.00699686, so say optimum at 0.00630584
+        -   exponential
+        -   truncated
+        -   gamma
+        -   Gaussian
+    """
 
 
-fig_action = plt.figure()
-plt.imshow(S)
-cbar = plt.colorbar(
-    orientation="vertical",
-)
-cbar.ax.set_ylabel(r"$S[q, y, k_1, k_2]$", rotation=270)
-plt.xlabel(r"Initial guess for $y$")
-plt.ylabel(r"Initial guess for $k_1$")
-plt.grid()
-plt.savefig("OU_action.pdf", dpi=500, bbox_inches="tight")
+    # x = np.argwhere(solutions < )
+
+    # solutions = np.array(solutions)
+    # solutions = solutions[solutions<1]
+
+    # fig3 = plt.figure()
+    # plt.hist(solutions, bins=10)
+    # plt.show()
+
+
+    # fig4 = plt.figure()
+    # guess_class = NG_no_memory(lam=l, a=a, noise="e", boundary_cond=[-1, 0, 0.06], pot="m", number_timestep=nsteps, maxtime=10)
+    # guess_class_l0 = NG_no_memory(lam=0, a=a, noise="d", boundary_cond=boundary, pot="m", number_timestep=nsteps, maxtime=10)
+    # y, t = guess_class.instanton()
+    # plt.plot(t, y.sol(t)[0], label="g=%g, p=%g" % (i, y.p))
+    # plt.show()
+
+
+    """
+    # ######################################### MEMORY #############################################
+
+    so if I see this correctly, we need to introduce a 2d grid search instead of a 1D, which sounds a lot more inefficient
+    """
+
+
+    # TODO look for more efficient methods
+
+
+    nsteps = 100
+    l = 0.01
+    a = 10
+
+    wow = 4
+
+    guess1 = np.array([-1.6 * 0 for i in range(wow)])
+    guess2 = np.array([1e-1 * i for i in range(wow)])
+
+    sol_nm = NG_no_memory(a=a, lam=0, pot="m", number_timestep=200, maxtime=10)
+    y_nm, t_nm = sol_nm.instanton()
+
+    action = []
+
+    fig5, ax = plt.subplots(nrows=2, ncols=2, sharex=True, figsize=(15, 15))
+    # plt.tight_layout()
+    for i in guess1:
+        for j in guess2:
+            boundary = [-1.0, 0, 0, 0, i, j]
+            sol = NG_memory(
+                lam=l,
+                a=a,
+                tau=0.01,
+                maxtime=10,
+                noise="d",
+                b=0.5,
+                number_timestep=200,
+                pot="m",
+                boundary_cond=boundary,
+                coupling=1.0,
+            )
+
+            print(boundary)
+
+            y, t = sol.instanton()
+            ax[0, 0].plot(t, y.sol(t)[0], label=r"$y=%g, k_1=%g$" % (i, j))
+            ax[0, 1].plot(t, y.sol(t)[1])
+            ax[1, 0].plot(t, y.sol(t)[2])
+            ax[1, 1].plot(t, y.sol(t)[3])
+
+            S = sol.action(t[1] - t[0], y.sol(t)[0], y.sol(t)[1], y.sol(t)[2], y.sol(t)[3])
+            action.append(S)
+
+    ax[0, 0].plot(t_nm, y_nm.sol(t)[0], label="AP-traj")
+
+    ax[0, 0].set_ylabel(r"$q$")
+    ax[0, 1].set_ylabel(r"$y$")
+    ax[1, 0].set_ylabel(r"$k_1$")
+    ax[1, 1].set_ylabel(r"$k_2$")
+    ax[0, 0].grid()
+    ax[0, 1].grid()
+    ax[1, 0].grid()
+    ax[1, 1].grid()
+
+    ax[1, 0].set_xlabel(r"$t$")
+    ax[1, 1].set_xlabel(r"$t$")
+    ax[0, 0].legend(loc="lower right")
+
+    plt.savefig("OU_traj.pdf", dpi=500, bbox_inches="tight")
+
+
+    S = np.asarray(action).reshape(wow, wow)
+
+
+    fig_action = plt.figure()
+    plt.imshow(S)
+    cbar = plt.colorbar(
+        orientation="vertical",
+    )
+    cbar.ax.set_ylabel(r"$S[q, y, k_1, k_2]$", rotation=270)
+    plt.xlabel(r"Initial guess for $y$")
+    plt.ylabel(r"Initial guess for $k_1$")
+    plt.grid()
+    plt.savefig("OU_action.pdf", dpi=500, bbox_inches="tight")
