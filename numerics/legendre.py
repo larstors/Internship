@@ -8,9 +8,10 @@ import sys
 from instanton import NG_memory, NG_no_memory
 
 class noise_and_potential:
-    def __init__(self, sigma=1, b=0.5):
+    def __init__(self, sigma=1, b=0.5, a=10):
         self.sigma = sigma
         self.b = b
+        self.a = a
 
     def Pot_mexico(self, x):
         """*mexican* hat potential
@@ -33,8 +34,6 @@ class noise_and_potential:
             np.ndarray: value of potential at positions
         """
         return x**3 - x
-
-
 
     def Phi_gauss(self, x):
         """characteristic function for gaussian distribution
@@ -105,30 +104,29 @@ class noise_and_potential:
 
 class transform(noise_and_potential):
     def __init__(self, lambda_, a, tau, D1, D2, N, noise="d", pot="m", tmax=10, sigma=1, b=1):
-        noise_and_potential.__init__(self, sigma, b)
+        #noise_and_potential.__init__(self, sigma, b)
         # parameters
         self.a = a
         self.lambda_ = lambda_
         self.tau = tau
         self.D1 = D1
         self.D2 = D2
-
     
         # characteristic function of noise
         if noise == "g":
-            self.phi = noise_and_potential.Phi_gauss
+            self.phi = self.Phi_gauss
         elif noise == "d":
-            self.phi = noise_and_potential.Phi_delta
+            self.phi = self.Phi_delta
         elif noise == "e":
-            self.phi = noise_and_potential.Phi_exp
+            self.phi = self.Phi_exp
         elif noise == "g":
-            self.phi = noise_and_potential.Phi_gamma
+            self.phi = self.Phi_gamma
         elif noise == "t":
-            self.phi = noise_and_potential.Phi_truncated
+            self.phi = self.Phi_truncated
 
         # potential
         if pot == "m":
-            self.potential = noise_and_potential.Pot_mexico
+            self.potential = self.Pot_mexico
 
         # initial guess length
         self.N = N
@@ -136,12 +134,12 @@ class transform(noise_and_potential):
         #max time
         self.tmax = tmax
 
-    def Psi(self, k2, k1=0):
-
-        return self.D1 * k1 ** 2 / 2 + self.D2 * k2 ** 2 * 0.5 + self.lambda_ * self.phi(self.a * k2)
 
     def Opt_Func(self, k2, f1):
-        return f1 - misc.derivative(self.Psi, k2)
+        if self.lambda_ == 0:
+            return f1 - self.D2 * k2
+        else:
+            return f1 - self.D2 * k2 - self.lambda_ * self.a  * self.dPhi_delta(self.a * k2)
 
     def Legendre_transform(self, initial, qDot: np.ndarray, q: np.ndarray, yDot: np.ndarray, y: np.ndarray):
 
@@ -157,7 +155,7 @@ class transform(noise_and_potential):
 
         return k1, k2
 
-    def MSR_action(self, init_values):
+    def MSR_action(self, init_values, prop=(-1e-6)):
         
         delta_t = self.tmax / self.N
 
@@ -167,7 +165,7 @@ class transform(noise_and_potential):
         qdot = (q[1:] - q[:-1]) / delta_t
         ydot = (y[1:] - y[:-1]) / delta_t
 
-        k1, k2 = self.Legendre_transform(np.zeros_like(qdot), qdot, q[:-1], ydot, y[:-1])
+        k1, k2 = self.Legendre_transform(np.ones_like(qdot)*prop, qdot, q[:-1], ydot, y[:-1])
 
         S = 0
         
@@ -198,28 +196,6 @@ class transform(noise_and_potential):
         """
         return t[self.N - 1]
 
-    def init_constraint_conjugate(self, t):
-        """Function for initial constraint that k2(0) = -1
-
-        Args:
-            t (np.ndarray): array of q and y, so has 2N dimensions, where q=t[:N] and y=t[N:]
-
-        Returns:
-            float: equation for initial constraint
-        """
-        return t[3 * self.N] 
-    
-    def final_constraint_conjugate(self, t):
-        """Function for final constraint that k2(tf) = 0
-
-        Args:
-            t (np.ndarray): array of q and y, so has 2N dimensions, where q=t[:N] and y=t[N:]
-
-        Returns:
-            float: equation for final constraint
-        """
-        return t[-1]
-
     def minimize(self):
         system = np.zeros(2 * self.N)
 
@@ -229,60 +205,9 @@ class transform(noise_and_potential):
 
         return optimum
 
-    def action(self, init_values):
-        """function to calculate the stochastic action using the Ito formalism
-
-        Args:
-            dt (float): time step width
-            q (np.ndarray): position
-            y (np.ndarray): OU-part of noise correlator
-            k1 (np.ndarray): conjugate variable to q
-            k2 (np.ndarray): conjugate variable to y
-
-        Returns:
-            float: value of (discrete) MSR action of system
-        """
-
-        q = init_values[:self.N]
-        y = init_values[self.N:2*self.N]
-        k1 = init_values[2*self.N:3*self.N]
-        k2 = init_values[3*self.N:]
-
-        dt = self.tmax / self.N
-        # dimension
-        m = len(q) - 1
-
-        # derivatives
-        qdot = np.zeros(m)
-        ydot = np.zeros(m)
-
-        qdot[:] = (q[1:] - q[:-1]) / dt
-        ydot[:] = (y[1:] - y[:-1]) / dt
-
-        # action
-        S = (
-            np.dot(k1[:-1], qdot + misc.derivative(self.potential, q[:-1]) - y[:-1])
-            + np.dot(k2[:-1], self.tau * ydot +  y[:-1])
-            - self.D1 / 2 * np.dot(k1[:-1], k1[:-1])
-            - self.D2 / 2 * np.dot(k2[:-1], k2[:-1])
-            - self.lambda_ * np.dot(np.ones(m), self.phi(k2[:-1] * self.a))
-        )
-
-        # return the action
-        return S
-    
-    def minimize_full(self):
-        system = np.zeros(4 * self.N)
-
-        constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}, {"type":"eq", "fun":self.init_constraint_conjugate}, {"type":"eq", "fun":self.final_constraint_conjugate}]
-
-        optimum = opt.minimize(self.action, x0=system, constraints=constraint, options={'disp': True})
-
-        return optimum
 
 class transform_nomemory:
     def __init__(self, lambda_, a, D, N, noise="d", pot="m", tmax=10):
-        
         # parameters
         self.a = a
         self.lambda_ = lambda_
@@ -538,91 +463,91 @@ class transform_nomemory:
 
     
 
-#if __name__ == "main":
+if __name__ == "main":
 
 
-# t = transform(0.0, 10, 0.0001, 1, 1, N, "d", "m", 10)
-# op = t.minimize()
-# #op1 = t.minimize_full()
+    # t = transform(0.0, 10, 0.0001, 1, 1, N, "d", "m", 10)
+    # op = t.minimize()
+    # #op1 = t.minimize_full()
 
-# print(op.message)
-# #print(op.x[:N])
+    # print(op.message)
+    # #print(op.x[:N])
 
-# time = np.linspace(0, 10, N, endpoint=True)
+    # time = np.linspace(0, 10, N, endpoint=True)
 
-# fig = plt.figure()
-# plt.plot(time, op.x[:N])
+    # fig = plt.figure()
+    # plt.plot(time, op.x[:N])
 
-# #plt.plot(time, op1.x[:N])
-# plt.xlabel(r"$t$")
-# plt.ylabel(r"$q$")
-# plt.show()
-N = 100
-tmax=10
-dt = tmax/N
+    # #plt.plot(time, op1.x[:N])
+    # plt.xlabel(r"$t$")
+    # plt.ylabel(r"$q$")
+    # plt.show()
+    N = 100
+    tmax=10
+    dt = tmax/N
 
-# t = transform_nomemory(lambda_=0, a=10, D=1, N=N, noise="d", pot="m", tmax=tmax)
-# op = t.minimize_full()
-# res = t.minimize()
+    # t = transform_nomemory(lambda_=0, a=10, D=1, N=N, noise="d", pot="m", tmax=tmax)
+    # op = t.minimize_full()
+    # res = t.minimize()
 
-# t = transform_nomemory(lambda_=0.01, a=10, D=1, N=N, noise="d", pot="m", tmax=tmax)
-# mem = t.minimize()
+    # t = transform_nomemory(lambda_=0.01, a=10, D=1, N=N, noise="d", pot="m", tmax=tmax)
+    # mem = t.minimize()
 
-# time = np.linspace(0, tmax, N, endpoint=True)
+    # time = np.linspace(0, tmax, N, endpoint=True)
 
-# fig2, ax = plt.subplots(nrows=1, ncols=2, figsize=(15, 7))
-# ax[0].plot(time, op.x[:N], label="OM minimization")
-# ax[0].plot(time, res.x[:N], label=r"MSR Legendre minimization, $\lambda=0$")
-# ax[0].plot(time, mem.x[:N], label=r"MSR Legendre minimization, $\lambda=0.01$")
-# ax[0].set_xlabel(r"$t$")
-# ax[0].set_ylabel(r"$q$")
-# ax[0].set_title("Comparison of minimizations")
-# ax[0].legend()
-# ax[0].grid()
+    # fig2, ax = plt.subplots(nrows=1, ncols=2, figsize=(15, 7))
+    # ax[0].plot(time, op.x[:N], label="OM minimization")
+    # ax[0].plot(time, res.x[:N], label=r"MSR Legendre minimization, $\lambda=0$")
+    # ax[0].plot(time, mem.x[:N], label=r"MSR Legendre minimization, $\lambda=0.01$")
+    # ax[0].set_xlabel(r"$t$")
+    # ax[0].set_ylabel(r"$q$")
+    # ax[0].set_title("Comparison of minimizations")
+    # ax[0].legend()
+    # ax[0].grid()
 
-# ax[1].plot(op.x[:N-1], (op.x[1:N] - op.x[:N-1])/dt, label="OM minimization")
-# ax[1].plot(res.x[:N-1], (res.x[1:N] - res.x[:N-1])/dt, label=r"MSR Legendre minimization, $\lambda=0$")
-# ax[1].plot(mem.x[:N-1], (mem.x[1:N] - mem.x[:N-1])/dt, label=r"MSR Legendre minimization, $\lambda=0.01$")
-# ax[1].set_ylabel(r"$\frac{q(t+dt)-q(t)}{dt}$")
-# ax[1].set_xlabel(r"$q$")
-# ax[1].set_title("Comparison of minimizations")
-# #ax[1].legend()
-# ax[1].grid()
-
-
-
-
-# plt.savefig("minimization_comparison_phase.pdf", dpi=500, bbox_inches="tight")
-
-
-# print(op.message)
-# print("The minimization of the markovian OM yields\t", op.fun, "\nThe fraction with the difference in potential (should yield 1) is\t", op.fun / (2*(t.Pot_mexico(0) - t.Pot_mexico(-1))))
-# print("Doing Legendre transform yields\t", res.fun, "\nAnd the fraction (again 1?) yields", res.fun/(2*(t.Pot_mexico(0) - t.Pot_mexico(-1))))
+    # ax[1].plot(op.x[:N-1], (op.x[1:N] - op.x[:N-1])/dt, label="OM minimization")
+    # ax[1].plot(res.x[:N-1], (res.x[1:N] - res.x[:N-1])/dt, label=r"MSR Legendre minimization, $\lambda=0$")
+    # ax[1].plot(mem.x[:N-1], (mem.x[1:N] - mem.x[:N-1])/dt, label=r"MSR Legendre minimization, $\lambda=0.01$")
+    # ax[1].set_ylabel(r"$\frac{q(t+dt)-q(t)}{dt}$")
+    # ax[1].set_xlabel(r"$q$")
+    # ax[1].set_title("Comparison of minimizations")
+    # #ax[1].legend()
+    # ax[1].grid()
 
 
 
 
-lam = np.logspace(start=-8, stop=2, base=10, num=20)
+    # plt.savefig("minimization_comparison_phase.pdf", dpi=500, bbox_inches="tight")
 
-S_norm_OM  = []
-S_norm_MSR = []
 
-for l in lam:
-    t = transform_nomemory(lambda_=l, a=10, D=1, N=N, noise="d", pot="m", tmax=tmax)
-    S_G = 2 * (t.Pot_mexico(0) - t.Pot_mexico(-1)) / (1 + l * 10 ** 2)
+    # print(op.message)
+    # print("The minimization of the markovian OM yields\t", op.fun, "\nThe fraction with the difference in potential (should yield 1) is\t", op.fun / (2*(t.Pot_mexico(0) - t.Pot_mexico(-1))))
+    # print("Doing Legendre transform yields\t", res.fun, "\nAnd the fraction (again 1?) yields", res.fun/(2*(t.Pot_mexico(0) - t.Pot_mexico(-1))))
 
-    #op = t.minimize_full()
-    res = t.minimize()
-    #S_norm_OM.append(op.fun/S_G)
-    S_norm_MSR.append(res.fun/S_G)
 
-fig3 = plt.figure()
-#plt.plot(lam, S_norm_OM, label="OM")
-plt.plot(lam, S_norm_MSR, label="MSR")
-plt.xlabel(r"$\lambda$")
-plt.ylabel(r"$S_\mathrm{norm}$")
-plt.xscale("log")
-plt.grid()
-plt.legend()
-plt.axis([min(lam), max(lam), -0.1, 1.1])
-plt.savefig("S_norm.pdf", dpi=500, bbox_inches="tight")
+
+
+    lam = np.logspace(start=-8, stop=2, base=10, num=20)
+
+    S_norm_OM  = []
+    S_norm_MSR = []
+
+    for l in lam:
+        t = transform_nomemory(lambda_=l, a=10, D=1, N=N, noise="d", pot="m", tmax=tmax)
+        S_G = 2 * (t.Pot_mexico(0) - t.Pot_mexico(-1)) / (1 + l * 10 ** 2)
+
+        #op = t.minimize_full()
+        res = t.minimize()
+        #S_norm_OM.append(op.fun/S_G)
+        S_norm_MSR.append(res.fun/S_G)
+
+    fig3 = plt.figure()
+    #plt.plot(lam, S_norm_OM, label="OM")
+    plt.plot(lam, S_norm_MSR, label="MSR")
+    plt.xlabel(r"$\lambda$")
+    plt.ylabel(r"$S_\mathrm{norm}$")
+    plt.xscale("log")
+    plt.grid()
+    plt.legend()
+    plt.axis([min(lam), max(lam), -0.1, 1.1])
+    plt.savefig("S_norm.pdf", dpi=500, bbox_inches="tight")
