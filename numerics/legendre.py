@@ -111,7 +111,6 @@ class transform(noise_and_potential):
         self.tau = tau
         self.D1 = D1
         self.D2 = D2
-    
         # characteristic function of noise
         if noise == "g":
             self.phi = self.Phi_gauss
@@ -144,7 +143,13 @@ class transform(noise_and_potential):
     def Legendre_transform(self, initial, qDot: np.ndarray, q: np.ndarray, yDot: np.ndarray, y: np.ndarray):
 
         f0 = qDot + self.dPhi_delta(q) - y
-        f1 = self.tau * yDot + y 
+
+
+        
+        if self.tau == 0:
+            f1 = y
+        else:
+            f1 = self.tau * yDot + y 
 
         if self.D1 != 0:
             k1 = f0 / self.D1
@@ -155,24 +160,26 @@ class transform(noise_and_potential):
 
         return k1, k2
 
-    def MSR_action(self, init_values, prop=(-1e-6)):
+    def MSR_action(self, init_values, prop=(-1e-8)):
         
         delta_t = self.tmax / self.N
 
         q = init_values[:self.N]
-        y = init_values[self.N:]
 
         qdot = (q[1:] - q[:-1]) / delta_t
+        y = qdot + self.dPot_mexico(q[:-1])
         ydot = (y[1:] - y[:-1]) / delta_t
 
-        k1, k2 = self.Legendre_transform(np.ones_like(qdot)*prop, qdot, q[:-1], ydot, y[:-1])
+        k1, k2 = self.Legendre_transform(np.ones_like(ydot)*prop, qdot[:-1], q[:-2], ydot, y[:-1])
 
         S = 0
         
-        for i in range(self.N - 1):
-            S += k1[i] * (qdot[i] + misc.derivative(self.potential, q[i]) - y[i]) + k2[i] * (self.tau * ydot[i] + y[i]) - self.D1 / 2 * k1[i] ** 2 - self.D2 / 2 * k2[i] ** 2 - self.lambda_ * self.phi(self.a * k2[i])
+        for i in range(self.N - 2):
+            if self.lambda_ != 0:
+                S += - self.lambda_ * self.phi(self.a * k2[i])
+            S += k1[i] * (qdot[i] + self.dPot_mexico(q[i]) - y[i]) + k2[i] * (self.tau * ydot[i] + y[i]) - self.D1 / 2 * k1[i] ** 2 - self.D2 / 2 * k2[i] ** 2 
 
-        return S
+        return S * delta_t
 
     def init_constraint(self, t):
         """Function for initial constraint that q(0) = -1
@@ -196,12 +203,12 @@ class transform(noise_and_potential):
         """
         return t[self.N - 1]
 
-    def minimize(self):
-        system = np.zeros(2 * self.N)
+    def minimize(self, in_cond = np.zeros(2 * 100), a=-1e-4):
+        system = in_cond
 
         constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}]
 
-        optimum = opt.minimize(self.MSR_action, x0=system, constraints=constraint, options={'disp': True})
+        optimum = opt.minimize(self.MSR_action, x0=system, args=(a), constraints=constraint, options={'disp': True,  'maxiter': 400})
 
         return optimum
 
