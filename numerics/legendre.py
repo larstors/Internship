@@ -101,9 +101,14 @@ class noise_and_potential:
         """
         return 0.5 * x**2 + self.b * x**4
 
+    def Pot_harmonic(self, x):
+        return x ** 2 / 2
+    
+    def dPot_harmonic(self, x):
+        return x
 
 class transform(noise_and_potential):
-    def __init__(self, lambda_, a, tau, D1, D2, N, noise="d", pot="m", tmax=10, sigma=1, b=1):
+    def __init__(self, lambda_, a, tau, D1, D2, N, noise="d", pot="m", tmax=10, sigma=1, b=1, const_i=-1, const_f=0):
         #noise_and_potential.__init__(self, sigma, b)
         # parameters
         self.a = a
@@ -126,12 +131,20 @@ class transform(noise_and_potential):
         # potential
         if pot == "m":
             self.potential = self.Pot_mexico
+            self.dpotential = self.dPot_mexico
+        elif pot == "h":
+            self.potential = self.Pot_harmonic
+            self.dpotential = self.dPot_harmonic
 
         # initial guess length
         self.N = N
 
         #max time
         self.tmax = tmax
+        
+        # constraints
+        self.const_i = const_i
+        self.const_f = const_f
 
 
     def Opt_Func(self, k2, f1):
@@ -142,7 +155,7 @@ class transform(noise_and_potential):
 
     def Legendre_transform(self, initial, qDot: np.ndarray, q: np.ndarray, yDot: np.ndarray, y: np.ndarray):
 
-        f0 = qDot + self.dPhi_delta(q) - y
+        f0 = qDot + self.dpotential(q) - y
 
 
         
@@ -160,14 +173,14 @@ class transform(noise_and_potential):
 
         return k1, k2
 
-    def MSR_action(self, init_values, prop=(-1e-8)):
+    def MSR_action(self, init_values, prop=(-1e-6)):
         
         delta_t = self.tmax / self.N
 
         q = init_values[:self.N]
 
         qdot = (q[1:] - q[:-1]) / delta_t
-        y = qdot + self.dPot_mexico(q[:-1])
+        y = qdot + self.dpotential(q[:-1])
         ydot = (y[1:] - y[:-1]) / delta_t
 
         k1, k2 = self.Legendre_transform(np.ones_like(ydot)*prop, qdot[:-1], q[:-2], ydot, y[:-1])
@@ -177,7 +190,7 @@ class transform(noise_and_potential):
         for i in range(self.N - 2):
             if self.lambda_ != 0:
                 S += - self.lambda_ * self.phi(self.a * k2[i])
-            S += k1[i] * (qdot[i] + self.dPot_mexico(q[i]) - y[i]) + k2[i] * (self.tau * ydot[i] + y[i]) - self.D1 / 2 * k1[i] ** 2 - self.D2 / 2 * k2[i] ** 2 
+            S += k1[i] * (qdot[i] + self.dpotential(q[i]) - y[i]) + k2[i] * (self.tau * ydot[i] + y[i]) - self.D1 / 2 * k1[i] ** 2 - self.D2 / 2 * k2[i] ** 2 
 
         return S * delta_t
 
@@ -190,7 +203,7 @@ class transform(noise_and_potential):
         Returns:
             float: equation for initial constraint
         """
-        return t[0] + 1
+        return t[0] -self.const_i
     
     def final_constraint(self, t):
         """Function for final constraint that q(tf) = 0
@@ -201,12 +214,22 @@ class transform(noise_and_potential):
         Returns:
             float: equation for final constraint
         """
-        return t[self.N - 1]
+        return t[self.N - 1] - self.const_f
+
+    def velocity_constraint(self, t):
+        return t[self.N - 1] - t[self.N - 2]
+    def velocity_constraint_initial(self, t):
+        return t[1] - t[0]
 
     def minimize(self, in_cond = np.zeros(2 * 100), a=-1e-4):
         system = in_cond
 
-        constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}]
+        if self.lambda_ > 10 and False:
+            constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}, {"type":"eq", "fun":self.velocity_constraint}]
+        elif self.potential == self.Pot_harmonic:
+            constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}, {"type":"eq", "fun":self.velocity_constraint}, {"type":"eq", "fun":self.velocity_constraint_initial}]
+        else:
+            constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}]
 
         optimum = opt.minimize(self.MSR_action, x0=system, args=(a), constraints=constraint, options={'disp': True,  'maxiter': 400})
 
@@ -348,7 +371,7 @@ class transform_nomemory:
 
         return k
 
-    def MSR_action(self, init_values, guess):
+    def MSR_action(self, init_values, a):
         
         delta_t = self.tmax / self.N
 
@@ -356,7 +379,7 @@ class transform_nomemory:
 
         qdot = (q[1:] - q[:-1]) / delta_t
 
-        k = self.Legendre_transform(guess, qdot, q[:-1])
+        k = self.Legendre_transform(np.ones(self.N-1) * a, qdot, q[:-1])
 
         S = 0
         
@@ -389,13 +412,12 @@ class transform_nomemory:
         """
         return t[self.N-1]
 
-    def minimize(self, guess=0):
-        system = np.zeros(self.N)#np.linspace(-1, 0, 2 * self.N)
+    def minimize(self, in_cond = np.zeros(100), a=-1e-4):
+        system = in_cond
 
         constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}]
-        if guess == 0:
-            guess = -np.ones(self.N-1)*1e-6
-        optimum = opt.minimize(self.MSR_action, x0=system, args=(guess), constraints=constraint, options={'disp': True, 'maxiter': 400})
+
+        optimum = opt.minimize(self.MSR_action, x0=system, args=(a), constraints=constraint, options={'disp': True, 'maxiter': 400})
 
         return optimum
 
@@ -470,7 +492,7 @@ class transform_nomemory:
 
     
 
-if __name__ == "main":
+if __name__ == "__main__":
 
 
     # t = transform(0.0, 10, 0.0001, 1, 1, N, "d", "m", 10)
