@@ -16,8 +16,143 @@ We use the system vector s of the form:
 
 """
 
+class noise_and_potential:
+    def __init__(self, sigma=1, b=0.5, a=10, scaling=1.0):
+        self.sigma = sigma
+        self.b = b
+        self.a = a
+        self.scaling = scaling
 
-class NG_memory:
+
+    def Pot_mexico(self, x):
+        """*mexican* hat potential
+
+        Args:
+            x (np.ndarray): position
+
+        Returns:
+            np.ndarray: value of potential at positions
+        """
+        return x**4 / 4 - x**2 / 2
+
+    def dPot_mexico(self, x):
+        """*mexican* hat potential
+
+        Args:
+            x (np.ndarray): position
+
+        Returns:
+            np.ndarray: value of potential at positions
+        """
+        return x**3 - x
+    
+    def ddPot_mexico(self, x):
+        """*mexican* hat potential
+
+        Args:
+            x (np.ndarray): position
+
+        Returns:
+            np.ndarray: value of potential at positions
+        """
+        return 3*x**2 - 1
+    
+    def Pot_mexico_shift(self, x):
+        """*mexican* hat potential
+
+        Args:
+            x (np.ndarray): position
+
+        Returns:
+            np.ndarray: value of potential at positions
+        """
+        return self.scaling*(x**4 / 4 - 3*x**3 / 2 + 9*x**2 / 4)
+
+    def dPot_mexico_shift(self, x):
+        """*mexican* hat potential
+
+        Args:
+            x (np.ndarray): position
+
+        Returns:
+            np.ndarray: value of potential at positions
+        """
+        return self.scaling*(x**3 - 9*x**2 / 2 + 9 * x / 2)
+
+    def Phi_gauss(self, x):
+        """characteristic function for gaussian distribution
+
+        Args:
+            x (float): position at which to evaluate the characteric function
+
+        Returns:
+            float: value of characteristic function
+        """
+        return np.exp(x**2 * self.sigma**2 / 2.0)
+
+    def Phi_delta(self, x):
+        """characteristic function for symmetric delta distributed
+
+        Args:
+            x (float): position at which to evaluate the characteric function
+
+        Returns:
+            float: value of characteristic function
+        """
+        return np.cosh(x) - 1
+
+    def dPhi_delta(self, x):
+        """characteristic function for symmetric delta distributed
+
+        Args:
+            x (float): position at which to evaluate the characteric function
+
+        Returns:
+            float: value of characteristic function
+        """
+        return np.sinh(x)
+
+    def Phi_exp(self, x):
+        """characteristic function for symmetric exponential distribution
+
+        Args:
+            x (float): position at which to evaluate the characteric function
+
+        Returns:
+            float: value of characteristic function
+        """
+        return x**2 / (2 * (1 - x**2))
+
+    def Phi_gamma(self, x):
+        """characteristic function for gamma distribution
+
+        Args:
+            x (float): position at which to evaluate the characteric function
+
+        Returns:
+            float: value of characteristic function
+        """
+        return ((1 + x) ** self.b + (1 - x) ** self.b - 2) / (2 * self.b * (self.b - 1))
+
+    def Phi_truncated(self, x):
+        """characteristic function for truncated distribution
+
+        Args:
+            x (float): position at which to evaluate the characteric function
+
+        Returns:
+            float: value of characteristic function
+        """
+        return 0.5 * x**2 + self.b * x**4
+
+    def Pot_harmonic(self, x):
+        return x ** 2 / 2
+    
+    def dPot_harmonic(self, x):
+        return x
+
+
+class NG_memory(noise_and_potential):
     def __init__(
         self,
         a=10.0,
@@ -34,7 +169,11 @@ class NG_memory:
         number_timestep=30,
         maxtime=1.0,
         coupling=1.0,
+        scaling=1.0
     ):
+
+        noise_and_potential.__init__(self, sigma, b, scaling=scaling)
+
         """Initialisation of the class
 
         Args:
@@ -88,7 +227,15 @@ class NG_memory:
         # potential
         if pot == "m":
             self.potential = self.Pot_mexico
-        # TODO add more potentials (skewed, or other?)
+            self.dpotential = self.dPot_mexico
+            self.ddpotential = self.ddPot_mexico
+        if pot == "ms":
+            self.potential = self.Pot_mexico_shift
+            self.dpotential = self.dPot_mexico_shift
+        elif pot == "h":
+            self.potential = self.Pot_harmonic
+            self.dpotential = self.dPot_harmonic
+    
 
         # system parameters
         self.boundary_cond = boundary_cond
@@ -97,72 +244,6 @@ class NG_memory:
 
         # coupling of the y dimension to the q dimension
         self.coupling = coupling
-
-    def Pot_mexico(self, x):
-        """*mexican* hat potential
-
-        Args:
-            x (np.ndarray): position
-
-        Returns:
-            np.ndarray: value of potential at positions
-        """
-        return x**4 / 4 - x**2 / 2
-
-    def Phi_gauss(self, x):
-        """characteristic function for gaussian distribution
-
-        Args:
-            x (float): position at which to evaluate the characteric function
-
-        Returns:
-            float: value of characteristic function
-        """
-        return np.exp(x**2 * self.sigma**2 / 2.0)
-
-    def Phi_delta(self, x):
-        """characteristic function for symmetric delta distributed
-
-        Args:
-            x (float): position at which to evaluate the characteric function
-
-        Returns:
-            float: value of characteristic function
-        """
-        return np.cosh(x) - 1
-
-    def Phi_exp(self, x):
-        """characteristic function for symmetric exponential distribution
-
-        Args:
-            x (float): position at which to evaluate the characteric function
-
-        Returns:
-            float: value of characteristic function
-        """
-        return x**2 / (2 * (1 - x**2))
-
-    def Phi_gamma(self, x):
-        """characteristic function for gamma distribution
-
-        Args:
-            x (float): position at which to evaluate the characteric function
-
-        Returns:
-            float: value of characteristic function
-        """
-        return ((1 + x) ** self.b + (1 - x) ** self.b - 2) / (2 * self.b * (self.b - 1))
-
-    def Phi_truncated(self, x):
-        """characteristic function for truncated distribution
-
-        Args:
-            x (float): position at which to evaluate the characteric function
-
-        Returns:
-            float: value of characteristic function
-        """
-        return 0.5 * x**2 + self.b * x**4
 
     def F(self, t, s):
         """System function
@@ -177,19 +258,25 @@ class NG_memory:
         # q coordinate
         output1 = (
             s[2] * self.D1
-            - misc.derivative(self.potential, s[0], dx=self.dx)
+            - self.dpotential(s[0])
             + s[1] * self.coupling
         )
 
         # y coordinate
-        output2 = self.tau ** (-1) *(
+        if self.lamb == 0:
+            output2 = self.tau ** (-1) * (
             - s[1]
             +  self.D2 * s[3]
-            + self.lamb * self.a * misc.derivative(self.phi, s[3] * self.a, dx=self.dx)
-        )
+            )
+        else:
+            output2 = self.tau ** (-1) * (
+                - s[1]
+                +  self.D2 * s[3]
+                + self.lamb * self.a * self.dPhi_delta(s[3] * self.a)
+            )
 
         # k1
-        output3 = s[2] * misc.derivative(self.potential, s[0], self.dx, n=2)
+        output3 = s[2] * self.ddpotential(s[0])
 
         # k2
         output4 = self.tau ** (-1) * (-s[2] * self.coupling + s[3])
@@ -267,14 +354,22 @@ class NG_memory:
         qdot[:] = (q[1:] - q[:-1]) / dt
         ydot[:] = (y[1:] - y[:-1]) / dt
 
+        if self.lamb == 0:
+            S = (
+                np.dot(k1[:-1], qdot + misc.derivative(self.potential, q[:-1]) - y[:-1])
+                + np.dot(k2[:-1], self.tau * ydot +  y[:-1])
+                - self.D1 / 2 * np.dot(k1[:-1], k1[:-1])
+                - self.D2 / 2 * np.dot(k2[:-1], k2[:-1])
+            )
+        else:
         # action
-        S = (
-            np.dot(k1[:-1], qdot + misc.derivative(self.potential, q[:-1]) - y[:-1])
-            + np.dot(k2[:-1], self.tau * ydot +  y[:-1])
-            - self.D1 / 2 * np.dot(k1[:-1], k1[:-1])
-            - self.D2 / 2 * np.dot(k2[:-1], k2[:-1])
-            - self.lamb * np.dot(np.ones(m), self.phi(k2[:-1] * self.a))
-        )
+            S = (
+                np.dot(k1[:-1], qdot + misc.derivative(self.potential, q[:-1]) - y[:-1])
+                + np.dot(k2[:-1], self.tau * ydot +  y[:-1])
+                - self.D1 / 2 * np.dot(k1[:-1], k1[:-1])
+                - self.D2 / 2 * np.dot(k2[:-1], k2[:-1])
+                - self.lamb * np.dot(np.ones(m), self.phi(k2[:-1] * self.a))
+            )
 
         # return the action
         return S * dt
@@ -524,17 +619,24 @@ class NG_no_memory:
         return S * dt
 
 
-# mem = NG_memory(lam=1, a=1, maxtime=10, noise="d", number_timestep=30)
 # mem_G = NG_memory(lam=0, a=1, maxtime=10, noise="d", number_timestep=30)
 # instanton_mem, t = mem.instanton()
 # instanton_mem_G, t = mem_G.instanton()
 
-if __name__ == "main":
+if __name__ == "__main__":
     nsteps = 100
     boundary = [-1, 0, 0.2]
-    l = 1
+    l = 0
     a = 1
 
+    mem = NG_memory(lam=l, a=a, maxtime=10, D1=0, D2=1.0, noise="d", pot="m", number_timestep=nsteps, tau=1e-5, boundary_cond=[-1.0, 0, 0, 0, 1e-5, 1e-5])
+    inst, t = mem.instanton()
+
+    S = mem.action(t[1] - t[0], inst.sol(t)[0], inst.sol(t)[1], inst.sol(t)[2], inst.sol(t)[3])
+
+    print(S)
+
+    """
 
     nomem_t = NG_no_memory(
         lam=l,
@@ -647,7 +749,7 @@ if __name__ == "main":
     plt.xlabel(r"Initial guess for $k_1$")
     plt.grid()
 
-    """
+    
     No Memory
     Optimal paratmeter for lambda=0 seems to be in the range 0.00267308-0.00412278, so say optimum is at 0.332899
     for lambda = 0.01 and 
@@ -656,7 +758,7 @@ if __name__ == "main":
         -   truncated
         -   gamma
         -   Gaussian
-    """
+    
 
 
     # x = np.argwhere(solutions < )
@@ -677,11 +779,11 @@ if __name__ == "main":
     # plt.show()
 
 
-    """
+    
     # ######################################### MEMORY #############################################
 
     so if I see this correctly, we need to introduce a 2d grid search instead of a 1D, which sounds a lot more inefficient
-    """
+    
 
 
     # TODO look for more efficient methods
@@ -761,3 +863,5 @@ if __name__ == "main":
     plt.ylabel(r"Initial guess for $k_1$")
     plt.grid()
     plt.savefig("OU_action.pdf", dpi=500, bbox_inches="tight")
+
+    """

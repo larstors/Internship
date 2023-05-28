@@ -8,10 +8,12 @@ import sys
 from instanton import NG_memory, NG_no_memory
 
 class noise_and_potential:
-    def __init__(self, sigma=1, b=0.5, a=10):
+    def __init__(self, sigma=1, b=0.5, a=10, scaling=1.0):
         self.sigma = sigma
         self.b = b
         self.a = a
+        self.scaling = scaling
+
 
     def Pot_mexico(self, x):
         """*mexican* hat potential
@@ -34,6 +36,28 @@ class noise_and_potential:
             np.ndarray: value of potential at positions
         """
         return x**3 - x
+    
+    def Pot_mexico_shift(self, x):
+        """*mexican* hat potential
+
+        Args:
+            x (np.ndarray): position
+
+        Returns:
+            np.ndarray: value of potential at positions
+        """
+        return self.scaling*(x**4 / 4 - 3*x**3 / 2 + 9*x**2 / 4)
+
+    def dPot_mexico_shift(self, x):
+        """*mexican* hat potential
+
+        Args:
+            x (np.ndarray): position
+
+        Returns:
+            np.ndarray: value of potential at positions
+        """
+        return self.scaling*(x**3 - 9*x**2 / 2 + 9 * x / 2)
 
     def Phi_gauss(self, x):
         """characteristic function for gaussian distribution
@@ -108,8 +132,8 @@ class noise_and_potential:
         return x
 
 class transform(noise_and_potential):
-    def __init__(self, lambda_, a, tau, D1, D2, N, noise="d", pot="m", tmax=10, sigma=1, b=1, const_i=-1, const_f=0):
-        #noise_and_potential.__init__(self, sigma, b)
+    def __init__(self, lambda_, a, tau, D1, D2, N, noise="d", pot="m", tmax=10, sigma=1, b=1, const_i=-1, const_f=0, scaling=1.0):
+        noise_and_potential.__init__(self, sigma, b, scaling=scaling)
         # parameters
         self.a = a
         self.lambda_ = lambda_
@@ -132,6 +156,9 @@ class transform(noise_and_potential):
         if pot == "m":
             self.potential = self.Pot_mexico
             self.dpotential = self.dPot_mexico
+        if pot == "ms":
+            self.potential = self.Pot_mexico_shift
+            self.dpotential = self.dPot_mexico_shift
         elif pot == "h":
             self.potential = self.Pot_harmonic
             self.dpotential = self.dPot_harmonic
@@ -189,8 +216,8 @@ class transform(noise_and_potential):
         
         for i in range(self.N - 2):
             if self.lambda_ != 0:
-                S += - self.lambda_ * self.phi(self.a * k2[i])
-            S += k1[i] * (qdot[i] + self.dpotential(q[i]) - y[i]) + k2[i] * (self.tau * ydot[i] + y[i]) - self.D1 / 2 * k1[i] ** 2 - self.D2 / 2 * k2[i] ** 2 
+                S -= self.lambda_ * self.phi(self.a * k2[i])
+            S +=  k2[i] * (self.tau * ydot[i] + y[i]) - self.D2 / 2 * k2[i] ** 2 # + k1[i] * (qdot[i] + self.dpotential(q[i]) - y[i]) - self.D1 / 2 * k1[i] ** 2 
 
         return S * delta_t
 
@@ -222,16 +249,28 @@ class transform(noise_and_potential):
         return t[1] - t[0]
 
     def minimize(self, in_cond = np.zeros(2 * 100), a=-1e-4):
-        system = in_cond
-
+        system = np.zeros(2*self.N)
+        if self.tau>0:
+            lam0 = min(1, 1/self.tau)
+            lam_1 = min(2, 1/self.tau)
+            lam = (lam_1 + lam0) / 2
+            system[:self.N] = np.linspace(self.const_i, self.const_f, self.N) #in_cond
+            system[self.N:] = -lam * system[:self.N] * (1 + system[:self.N])
+        else:
+            lam0 = 1
+            lam_1 = 2
+            lam = (lam_1 + lam0) / 2
+            system[:self.N] = np.linspace(self.const_i, self.const_f, self.N) #in_cond
+            system[self.N:] = -lam * system[:self.N] * (1 + system[:self.N])
+            
         if self.lambda_ > 10 and False:
             constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}, {"type":"eq", "fun":self.velocity_constraint}]
-        elif self.potential == self.Pot_harmonic:
+        elif self.potential == self.Pot_harmonic or self.potential == self.Pot_mexico_shift or self.potential == self.Pot_mexico:
             constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}, {"type":"eq", "fun":self.velocity_constraint}, {"type":"eq", "fun":self.velocity_constraint_initial}]
         else:
             constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}]
 
-        optimum = opt.minimize(self.MSR_action, x0=system, args=(a), constraints=constraint, options={'disp': True,  'maxiter': 400})
+        optimum = opt.minimize(self.MSR_action, x0=system, args=(a), constraints=constraint, options={'disp': True,  'maxiter': 1000})
 
         return optimum
 
