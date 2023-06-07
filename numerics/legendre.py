@@ -4,6 +4,8 @@ import scipy.optimize as opt
 import scipy.misc as misc
 from numba import njit, jit
 import sys
+import math
+from scipy.integrate import solve_bvp
 
 from instanton import NG_memory, NG_no_memory
 
@@ -36,6 +38,17 @@ class noise_and_potential:
             np.ndarray: value of potential at positions
         """
         return x**3 - x
+    
+    def ddPot_mexico(self, x):
+        """*mexican* hat potential
+
+        Args:
+            x (np.ndarray): position
+
+        Returns:
+            np.ndarray: value of potential at positions
+        """
+        return 3*x**2 - 1
     
     def Pot_mexico_shift(self, x):
         """*mexican* hat potential
@@ -131,6 +144,33 @@ class noise_and_potential:
     def dPot_harmonic(self, x):
         return x
 
+    def init_constraint(self, t):
+        """Function for initial constraint that q(0) = -1
+
+        Args:
+            t (np.ndarray): array of q and y, so has 2N dimensions, where q=t[:N] and y=t[N:]
+
+        Returns:
+            float: equation for initial constraint
+        """
+        return t[0] -self.const_i
+    
+    def final_constraint(self, t):
+        """Function for final constraint that q(tf) = 0
+
+        Args:
+            t (np.ndarray): array of q and y, so has 2N dimensions, where q=t[:N] and y=t[N:]
+
+        Returns:
+            float: equation for final constraint
+        """
+        return t[self.N - 1] - self.const_f
+
+    def velocity_constraint(self, t):
+        return t[self.N - 1] - t[self.N - 2]
+    def velocity_constraint_initial(self, t):
+        return t[1] - t[0]
+    
 class transform(noise_and_potential):
     def __init__(self, lambda_, a, tau, D1, D2, N, noise="d", pot="m", tmax=10, sigma=1, b=1, const_i=-1, const_f=0, scaling=1.0):
         noise_and_potential.__init__(self, sigma, b, scaling=scaling)
@@ -248,7 +288,7 @@ class transform(noise_and_potential):
     def velocity_constraint_initial(self, t):
         return t[1] - t[0]
 
-    def minimize(self, in_cond = np.zeros(2 * 100), a=-1e-4):
+    def minimize(self, in_cond = np.zeros(2 * 100), a=-1e-4, maxiter=1000):
         system = np.zeros(2*self.N)
         if self.tau>0:
             lam0 = min(1, 1/self.tau)
@@ -270,9 +310,430 @@ class transform(noise_and_potential):
         else:
             constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}]
 
-        optimum = opt.minimize(self.MSR_action, x0=system, args=(a), constraints=constraint, options={'disp': True,  'maxiter': 1000})
+        optimum = opt.minimize(self.MSR_action, x0=system, args=(a), constraints=constraint, options={'disp': True,  'maxiter': maxiter})
 
         return optimum
+
+class TransformLargeTau(noise_and_potential):
+    def __init__(self, lambda_, a, tau, D1, D2, N, noise="d", pot="m", tmax=10, sigma=1, b=1, const_i=-1, const_f=0, scaling=1.0):
+        noise_and_potential.__init__(self, sigma, b, scaling=scaling)
+        # parameters
+        self.a = a
+        self.lambda_ = lambda_
+        self.tau = tau
+        self.D1 = D1
+        self.D2 = D2
+        # characteristic function of noise
+        if noise == "g":
+            self.phi = self.Phi_gauss
+        elif noise == "d":
+            self.phi = self.Phi_delta
+        elif noise == "e":
+            self.phi = self.Phi_exp
+        elif noise == "g":
+            self.phi = self.Phi_gamma
+        elif noise == "t":
+            self.phi = self.Phi_truncated
+
+        # potential
+        if pot == "m":
+            self.potential = self.Pot_mexico
+            self.dpotential = self.dPot_mexico
+        if pot == "ms":
+            self.potential = self.Pot_mexico_shift
+            self.dpotential = self.dPot_mexico_shift
+        elif pot == "h":
+            self.potential = self.Pot_harmonic
+            self.dpotential = self.dPot_harmonic
+
+        # initial guess length
+        self.N = N
+
+        #max time
+        self.tmax = tmax
+        
+        # constraints
+        self.const_i = const_i
+        self.const_f = const_f
+
+    def Opt_Func(self, k2, f1):
+        return f1 - self.D2 * k2 - self.lambda_ * self.a  * self.dPhi_delta(self.a * k2)
+
+    def Legendre_transform(self, initial, qddot: np.ndarray, qDot: np.ndarray, q: np.ndarray):
+
+        if self.lambda_ > 0:
+            f1 = (1 / self.tau * (qddot + qDot[:-1]) + self.ddPot_mexico(q[:-2]) * qDot[:-1] + self.dPot_mexico(q[:-2]))
+            k2 = opt.fsolve(self.Opt_Func, initial, args=f1)
+        else:
+            k2 = 1/self.D2 * (1 / self.tau * (qddot + qDot[:-1]) + self.ddPot_mexico(q[:-2]) * qDot[:-1] + self.dPot_mexico(q[:-2]))
+        return k2
+
+    def MSR_action_position_space(self):
+
+        S = 0
+        # optimize wrt v = qdot
+
+        for i in range(self.N-1):
+            vprime = (v[i+1]-v[i])/dq
+            S+= 1 / self.tau * (vprime + 1) + self.ddPot_mexico(q[i])
+
+
+        return S
+
+    def MSR_action(self, init_values, guess):
+        delta_t = self.tmax = self.N
+        q = init_values
+        qdot = (q[1:] - q[:-1]) / delta_t
+        qddot = (qdot[1:] - qdot[:-1]) / delta_t
+
+        k2 = self.Legendre_transform(guess, qddot, qdot, q)
+
+        S = 0
+        for i in range(self.N-2):
+            x = q[i]#(q[i+2] + 2*q[i+1] + q[i]) / 4
+            v = (qdot[i+1]+qdot[i])/2
+
+            S += k2[i] * (1 / self.tau * (qddot[i] + v) + self.ddPot_mexico(x) * v + self.dPot_mexico(x) - self.D2 / 2 * k2[i])
+            if self.lambda_ > 0:
+                S -= self.lambda_ * self.Phi_delta(self.a * k2[i])
+
+        return delta_t * self.tau * S
+
+    def minimize(self, in_cond, guess, a=-1e-4, maxiter=1000):
+        system = np.zeros(self.N)
+        lam0 = min(1, 1/self.tau)
+        lam_1 = min(2, 1/self.tau)
+        lam = (lam_1 + lam0) / 2
+        system = np.linspace(self.const_i, self.const_f, self.N) #in_cond
+
+        constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}, {"type":"eq", "fun":self.velocity_constraint}, {"type":"eq", "fun":self.velocity_constraint_initial}]
+
+        optimum = opt.minimize(self.MSR_action, x0=system, args=(guess), constraints=constraint, options={'disp': True,  'maxiter': maxiter})
+
+        return optimum
+
+
+class transform_adjust(noise_and_potential):
+    def __init__(self, lambda_, a, tau, D1, D2, N, noise="d", pot="m", tmax=10, sigma=1, b=1, const_i=-1, const_f=0, scaling=1.0):
+        noise_and_potential.__init__(self, sigma, b, scaling=scaling)
+        # parameters
+        self.a = a
+        self.lambda_ = lambda_
+        self.tau = tau
+        self.D1 = D1
+        self.D2 = D2
+        # characteristic function of noise
+        if noise == "g":
+            self.phi = self.Phi_gauss
+        elif noise == "d":
+            self.phi = self.Phi_delta
+        elif noise == "e":
+            self.phi = self.Phi_exp
+        elif noise == "g":
+            self.phi = self.Phi_gamma
+        elif noise == "t":
+            self.phi = self.Phi_truncated
+
+        # potential
+        if pot == "m":
+            self.potential = self.Pot_mexico
+            self.dpotential = self.dPot_mexico
+        if pot == "ms":
+            self.potential = self.Pot_mexico_shift
+            self.dpotential = self.dPot_mexico_shift
+        elif pot == "h":
+            self.potential = self.Pot_harmonic
+            self.dpotential = self.dPot_harmonic
+
+        # initial guess length
+        self.N = N
+
+        #max time
+        self.tmax = tmax
+        
+        # constraints
+        self.const_i = const_i
+        self.const_f = const_f
+
+
+    def Opt_Func(self, k2, f1):
+        return f1 - self.D2 * k2 - self.lambda_ * self.a  * self.dPhi_delta(self.a * k2)
+
+    def Legendre_transform(self, initial, yDot: np.ndarray, y: np.ndarray):
+
+        f1 = self.tau * yDot + y 
+
+        if self.lambda_ > 0:
+            k2 = opt.fsolve(self.Opt_Func, initial, args=f1)
+        else:
+            k2 = 1 / self.D2 * f1
+
+        return k2
+
+    def MSR_action(self, init_values, prop=(-1e-6)):
+        
+        delta_t = self.tmax / self.N
+
+        q = init_values[:self.N]
+
+        qdot = (q[1:] - q[:-1]) / delta_t
+        y = qdot + self.dpotential(q[:-1])
+        ydot = (y[1:] - y[:-1]) / delta_t
+
+        k2 = self.Legendre_transform(np.ones_like(ydot)*prop, ydot, y[:-1])
+
+        S = 0
+        
+        for i in range(self.N - 2):
+            if self.lambda_ != 0:
+                S -= self.lambda_ * self.phi(self.a * k2[i])
+            S +=  k2[i] * (self.tau * ydot[i] + y[i]) - self.D2 / 2 * k2[i] ** 2 # + k1[i] * (qdot[i] + self.dpotential(q[i]) - y[i]) - self.D1 / 2 * k1[i] ** 2 
+
+        return S * delta_t
+
+    def init_constraint(self, t):
+        """Function for initial constraint that q(0) = -1
+
+        Args:
+            t (np.ndarray): array of q and y, so has 2N dimensions, where q=t[:N] and y=t[N:]
+
+        Returns:
+            float: equation for initial constraint
+        """
+        return t[0] - self.const_i
+    
+    def final_constraint(self, t):
+        """Function for final constraint that q(tf) = 0
+
+        Args:
+            t (np.ndarray): array of q and y, so has 2N dimensions, where q=t[:N] and y=t[N:]
+
+        Returns:
+            float: equation for final constraint
+        """
+        return t[self.N - 1] - self.const_f
+
+    def velocity_constraint(self, t):
+        return t[self.N - 1] - t[self.N - 2]
+    def velocity_constraint_initial(self, t):
+        return t[1] - t[0]
+
+    def minimize(self, in_cond = np.zeros(2 * 100), a=-1e-4, maxiter=1000):
+        system = np.zeros(self.N)
+        system[:self.N] = np.linspace(self.const_i, self.const_f, self.N) #in_cond
+        constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}, {"type":"eq", "fun":self.velocity_constraint}, {"type":"eq", "fun":self.velocity_constraint_initial}]
+
+        optimum = opt.minimize(self.MSR_action, x0=system, args=(a), constraints=constraint, options={'disp': True,  'maxiter': maxiter})
+
+        return optimum
+
+
+
+class NG_memory(noise_and_potential):
+    def __init__(
+        self,
+        a=10.0,
+        b=2.0,
+        sigma=1.0,
+        lam=0.01,
+        D2=1.0,
+        tau=1.0,
+        noise="g",
+        pot="m",
+        dx=1e-4,
+        boundary_cond=[-1, 0, 0, 0],
+        number_timestep=30,
+        maxtime=1.0,
+        coupling=1.0,
+        scaling=1.0
+    ):
+
+        noise_and_potential.__init__(self, sigma, b, scaling=scaling)
+
+        """Initialisation of the class
+
+        Args:
+            a (float, optional): rescaled variance of characteristic funtion. Defaults to 10.0.
+            b (float, optional): parameter for characteristic function: for details see individual functions. Defaults to 2.0.
+            sigma (float, optional): variance for gaussian characteristic function. Defaults to 1.0.
+            lam (float, optional): poisson shot noise rate. Defaults to 1.0.
+            D1 (float, optional): gaussian noise variance on q. Defaults to 1.0.
+            D2 (float, optional): gaussian noise variance on y. Defaults to 1.0.
+            tau (float, optional): inverse OU memory timescale. Defaults to 1.0.
+            noise (str, optional): type amplitude distribution, choice between:
+                    g for Gaussian,
+                    d for delta,
+                    e for two-sided exponential,
+                    g for gamma,
+                    t for truncated.
+                    Defaults to "g".
+            pot (str, optional): type of potential, choice between:
+                    m for mexican hat.
+                    Defaults to "m".
+            dx (float, optional): discretisation for derivatives. Defaults to 1e-4.
+            boundary_cond (list, optional): boundary conditions of form
+                    [q_initial, q_final, y_initial, y_final].
+                    Defaults to [-1, 0, 0, 0].
+            number_timestep (int, optional): number of timesteps for instanton. Defaults to 30.0.
+            maxtime (float, optional): maximal time. Defaults to 1.0.
+        """
+        self.a = a
+        self.lamb = lam
+        self.D2 = D2
+        self.tau = tau
+
+        # noise parameters (if needed)
+        self.b = b
+        self.sigma = sigma
+
+        # characteristic function of noise
+        if noise == "g":
+            self.phi = self.Phi_gauss
+        elif noise == "d":
+            self.phi = self.Phi_delta
+        elif noise == "e":
+            self.phi = self.Phi_exp
+        elif noise == "g":
+            self.phi = self.Phi_gamma
+        elif noise == "t":
+            self.phi = self.Phi_truncated
+
+        # potential
+        if pot == "m":
+            self.potential = self.Pot_mexico
+            self.dpotential = self.dPot_mexico
+            self.ddpotential = self.ddPot_mexico
+        if pot == "ms":
+            self.potential = self.Pot_mexico_shift
+            self.dpotential = self.dPot_mexico_shift
+        elif pot == "h":
+            self.potential = self.Pot_harmonic
+            self.dpotential = self.dPot_harmonic
+    
+
+        # system parameters
+        self.boundary_cond = boundary_cond
+        self.number_timestep = number_timestep
+        self.maxtime = maxtime
+
+        # coupling of the y dimension to the q dimension
+        self.coupling = coupling
+
+    def F(self, t, s):
+        """System function
+
+        Args:
+            t (np.ndarray): time
+            s (np.ndarray): system array
+
+        Returns:
+            np.ndarray: system equations
+        """
+        # qdot coordinate
+        output1 = s[0]
+        # qddot
+        output2 = 1/self.tau * ((- self.tau * self.ddPot_mexico(s[0]) + 1)*s[1] - self.dPot_mexico(s[0]) + self.D2*s[2] + self.a*self.lamb * self.dPhi_delta(self.a*s[2]))
+
+
+        # k2dot
+        output3 = s[2]
+        # k2ddot
+        output4 = 1/self.tau * ((1 + self.tau * self.ddPot_mexico(s[0])) * s[3] - self.ddPot_mexico(s[0])*s[2])
+
+        # output
+        return np.vstack((output1, output2, output3, output4))
+
+    def Residuals(self, ini, fin):
+        """Residuals for boundary conditions
+
+        Args:
+            ini (np.ndarray): initial values
+            fin (np.ndarray): final values
+
+        Returns:
+            np.ndarray: residuals
+        """
+        # k = p[0]
+        # k2 = p[1]
+        res = np.zeros(4)
+        res[0] = ini[0] - self.boundary_cond[0]
+        res[1] = fin[0] - self.boundary_cond[1]
+        res[2] = ini[1] - self.boundary_cond[2]
+        res[3] = fin[1] - self.boundary_cond[3]
+        # res[3] = ini[1] - 0
+        # res[4] = ini[1] - k
+        # res[5] = ini[2] - k2
+        return res
+
+    def instanton(self):
+        """Function to recover the instanton of the system given some initial conditions. The method used is the
+        boundary value problem solver by scipy, see shooting method
+
+        Returns:
+            scipy.integrate._bvp.BVPResult: Result from the integrator
+        """
+        # time
+        t = np.linspace(0, self.maxtime, self.number_timestep)
+
+        # value array
+        y = np.zeros((4, t.size))
+        # apply initial guess
+        y[0, 0] = self.boundary_cond[0]  # q
+        y[3, 0] = self.boundary_cond[2]  # k_2
+        y[1, 0] = self.boundary_cond[4]  # y
+        y[2, 0] = self.boundary_cond[5]  # k_1
+
+        result = solve_bvp(self.F, self.Residuals, t, y, verbose=2)
+
+        print(result.message)
+        # print(result.p)
+        # print(self.boundary_cond)
+        return result, t
+
+    def action(self, dt, q, y, k1, k2):
+        """function to calculate the stochastic action using the Ito formalism
+
+        Args:
+            dt (float): time step width
+            q (np.ndarray): position
+            y (np.ndarray): OU-part of noise correlator
+            k1 (np.ndarray): conjugate variable to q
+            k2 (np.ndarray): conjugate variable to y
+
+        Returns:
+            float: value of (discrete) MSR action of system
+        """
+        # dimension
+        m = len(q) - 1
+
+        # derivatives
+        qdot = np.zeros(m)
+        ydot = np.zeros(m)
+
+        qdot[:] = (q[1:] - q[:-1]) / dt
+        ydot[:] = (y[1:] - y[:-1]) / dt
+
+        if self.lamb == 0:
+            S = (
+                np.dot(k1[:-1], qdot + misc.derivative(self.potential, q[:-1]) - y[:-1])
+                + np.dot(k2[:-1], self.tau * ydot +  y[:-1])
+                - self.D1 / 2 * np.dot(k1[:-1], k1[:-1])
+                - self.D2 / 2 * np.dot(k2[:-1], k2[:-1])
+            )
+        else:
+        # action
+            S = (
+                np.dot(k1[:-1], qdot + misc.derivative(self.potential, q[:-1]) - y[:-1])
+                + np.dot(k2[:-1], self.tau * ydot +  y[:-1])
+                - self.D1 / 2 * np.dot(k1[:-1], k1[:-1])
+                - self.D2 / 2 * np.dot(k2[:-1], k2[:-1])
+                - self.lamb * np.dot(np.ones(m), self.phi(k2[:-1] * self.a))
+            )
+
+        # return the action
+        return S * dt
+
+
 
 
 class transform_nomemory:
@@ -528,7 +989,7 @@ class transform_nomemory:
 
         # return the action
         return S * dt
-
+    
     
 
 if __name__ == "__main__":
