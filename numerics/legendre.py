@@ -215,6 +215,15 @@ class transform(noise_and_potential):
 
 
     def Opt_Func(self, k2, f1):
+        """Function for calculating Legendre transform numerically
+
+        Args:
+            k2 (np.ndarray): array to solve for
+            f1 (np.ndarray): input
+
+        Returns:
+            np.ndarray: values for equation
+        """
         if self.lambda_ == 0:
             return f1 - self.D2 * k2
         else:
@@ -487,8 +496,7 @@ class transform_adjust(noise_and_potential):
         for i in range(self.N - 2):
             if self.lambda_ != 0:
                 S -= self.lambda_ * self.phi(self.a * k2[i])
-            S +=  k2[i] * (self.tau * ydot[i] + y[i]) - self.D2 / 2 * k2[i] ** 2 # + k1[i] * (qdot[i] + self.dpotential(q[i]) - y[i]) - self.D1 / 2 * k1[i] ** 2 
-
+            S +=  k2[i] * (self.tau * ydot[i] + y[i]) - self.D2 / 2 * k2[i] ** 2 
         return S * delta_t
 
     def init_constraint(self, t):
@@ -520,7 +528,10 @@ class transform_adjust(noise_and_potential):
 
     def minimize(self, in_cond = np.zeros(2 * 100), a=-1e-4, maxiter=1000):
         system = np.zeros(self.N)
-        system[:self.N] = np.linspace(self.const_i, self.const_f, self.N) #in_cond
+        if in_cond[0] == 0:
+            system[:self.N] = np.linspace(self.const_i, self.const_f, self.N) #in_cond
+        else:
+            system = in_cond
         constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}, {"type":"eq", "fun":self.velocity_constraint}, {"type":"eq", "fun":self.velocity_constraint_initial}]
 
         optimum = opt.minimize(self.MSR_action, x0=system, args=(a), constraints=constraint, options={'disp': True,  'maxiter': maxiter})
