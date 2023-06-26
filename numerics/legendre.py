@@ -6,6 +6,8 @@ from numba import njit, jit
 import sys
 import math
 from scipy.integrate import solve_bvp
+from scipy.interpolate import interp1d
+
 
 from instanton import NG_memory, NG_no_memory
 
@@ -464,6 +466,26 @@ class transform_adjust(noise_and_potential):
         self.const_i = const_i
         self.const_f = const_f
 
+        # setting up look-up table for Legendre Transform
+        # dummy for m_2 = tau * ydot + y
+        m_2 = np.linspace(-3000, 3000, 250)
+        initial = np.ones_like(m_2) * (-1e-5)
+        # function values
+        Leg = self.solver(m_2=m_2, initial=initial)
+        # set up interpolation
+        self.Legendre = interp1d(m_2, Leg, kind="linear")
+
+    def solver(self, m_2, initial):
+        def dphi(x):
+            return np.sinh(x)
+
+        def Eq(k, m):
+            return m - self.D2 * k - self.lambda_ * self.a * dphi(self.a * k)
+        
+        k = opt.fsolve(Eq, initial, args=(m_2))
+
+        return k
+
 
     def Opt_Func(self, k2, f1):
         return f1 - self.D2 * k2 - self.lambda_ * self.a  * self.dPhi_delta(self.a * k2)
@@ -473,7 +495,7 @@ class transform_adjust(noise_and_potential):
         f1 = self.tau * yDot + y 
 
         if self.lambda_ > 0:
-            k2 = opt.fsolve(self.Opt_Func, initial, args=f1)
+            k2 = self.Legendre(f1) #opt.fsolve(self.Opt_Func, initial, args=f1)
         else:
             k2 = 1 / self.D2 * f1
 
