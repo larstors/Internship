@@ -7,8 +7,7 @@ import sys
 import math
 from scipy.integrate import solve_bvp
 from scipy.interpolate import interp1d
-
-
+#import torch
 from instanton import NG_memory, NG_no_memory
 
 class noise_and_potential:
@@ -117,6 +116,9 @@ class noise_and_potential:
             float: value of characteristic function
         """
         return x**2 / (2 * (1 - x**2))
+    
+    def dPhi_exp(self, x):
+        return x / ((1 - x ** 2) ** 2)
 
     def Phi_gamma(self, x):
         """characteristic function for gamma distribution
@@ -129,6 +131,10 @@ class noise_and_potential:
         """
         return ((1 + x) ** self.b + (1 - x) ** self.b - 2) / (2 * self.b * (self.b - 1))
 
+    def dPhi_gamma(self, x):
+        return ((1 + x) ** (self.b-1) + (1 - x) ** (self.b-1) - 2) / (2 * self.b * (self.b - 1))
+
+
     def Phi_truncated(self, x):
         """characteristic function for truncated distribution
 
@@ -139,6 +145,9 @@ class noise_and_potential:
             float: value of characteristic function
         """
         return 0.5 * x**2 + self.b * x**4
+    
+    def dPhi_truncated(self, x):
+        return x * 4 * self.b * x ** 3
 
     def Pot_harmonic(self, x):
         return x ** 2 / 2
@@ -433,20 +442,30 @@ class transform_adjust(noise_and_potential):
         self.tau = tau
         self.D1 = D1
         self.D2 = D2
+        print("lambda \t\t %e\n a \t\t %f \n tau \t\t %f \n D \t\t %f \n tmax \t\t %f\n N \t\t %d\n" % (self.lambda_, self.a, self.tau, self.D2, tmax, N))
         # characteristic function of noise
         if noise == "g":
             self.phi = self.Phi_gauss
         elif noise == "d":
+            print("Noise: symmetric delta at +- 1")
             self.phi = self.Phi_delta
+            self.dphi = self.dPhi_delta
         elif noise == "e":
+            print("Noise: symmetric exponential with characteristic scale 1")
             self.phi = self.Phi_exp
+            self.dphi = self.dPhi_exp
         elif noise == "g":
+            print("Noise: gamma distributed with scale %f" % self.b)
             self.phi = self.Phi_gamma
+            self.dphi = self.dPhi_gamma
         elif noise == "t":
+            print("Noise: truncated coefficient %f" % self.b)
             self.phi = self.Phi_truncated
+            self.dphi = self.dPhi_truncated
 
         # potential
         if pot == "m":
+            print("Potential: quartic potential q^4/4 - q^2/2\n")
             self.potential = self.Pot_mexico
             self.dpotential = self.dPot_mexico
         if pot == "ms":
@@ -468,50 +487,39 @@ class transform_adjust(noise_and_potential):
 
         # setting up look-up table for Legendre Transform
         # dummy for m_2 = tau * ydot + y
-        m_2 = np.linspace(-3000, 3000, 250)
-        initial = np.ones_like(m_2) * (-1e-5)
+        m_2 = np.linspace(-2000, 2000, 500)
+        initial = np.ones_like(m_2) * (1e-4)
+        #initial = self.solver(m_2=m_2, initial=initial)
+        
         # function values
-        Leg = self.solver(m_2=m_2, initial=initial)
+        Leg = self.solver(m_2=m_2, initial=initial, lambda_=self.lambda_, a=self.a)
         # set up interpolation
         self.Legendre = interp1d(m_2, Leg, kind="linear")
 
-    def solver(self, m_2, initial):
-        def dphi(x):
-            return np.sinh(x)
+    def solver(self, m_2, initial, lambda_=0.01, a=10):
 
-        def Eq(k, m):
-            return m - self.D2 * k - self.lambda_ * self.a * dphi(self.a * k)
+        def Eq(k, m, lam, a):
+            return m - self.D2 * k - lambda_ * a * self.dphi(a * k)
         
-        k = opt.fsolve(Eq, initial, args=(m_2))
+        k = opt.root(Eq, initial, args=(m_2, lambda_, a), method="lm").x
 
         return k
 
-
-    def Opt_Func(self, k2, f1):
-        return f1 - self.D2 * k2 - self.lambda_ * self.a  * self.dPhi_delta(self.a * k2)
-
-    def Legendre_transform(self, initial, yDot: np.ndarray, y: np.ndarray):
+    def Legendre_transform(self, yDot: np.ndarray, y: np.ndarray):
 
         f1 = self.tau * yDot + y 
-
-        if self.lambda_ > 0:
-            k2 = self.Legendre(f1) #opt.fsolve(self.Opt_Func, initial, args=f1)
-        else:
-            k2 = 1 / self.D2 * f1
-
+        k2 = self.Legendre(f1) #opt.fsolve(self.Opt_Func, initial, args=f1)
         return k2
 
-    def MSR_action(self, init_values, prop=(-1e-6)):
+    def MSR_action(self, init_values):
         
         delta_t = self.tmax / self.N
 
         q = init_values[:self.N]
-
         qdot = (q[1:] - q[:-1]) / delta_t
         y = qdot + self.dpotential(q[:-1])
         ydot = (y[1:] - y[:-1]) / delta_t
-
-        k2 = self.Legendre_transform(np.ones_like(ydot)*prop, ydot, y[:-1])
+        k2 = self.Legendre_transform(ydot, y[:-1])
 
         S = 0
         
@@ -548,7 +556,7 @@ class transform_adjust(noise_and_potential):
     def velocity_constraint_initial(self, t):
         return t[1] - t[0]
 
-    def minimize(self, in_cond = np.zeros(2 * 100), a=-1e-4, maxiter=1000):
+    def minimize(self, in_cond = np.zeros(2 * 100), maxiter=1000):
         system = np.zeros(self.N)
         if in_cond[0] == 0:
             system[:self.N] = np.linspace(self.const_i, self.const_f, self.N) #in_cond
@@ -556,11 +564,9 @@ class transform_adjust(noise_and_potential):
             system = in_cond
         constraint = [{"type":"eq", "fun":self.init_constraint}, {"type":"eq", "fun":self.final_constraint}, {"type":"eq", "fun":self.velocity_constraint}, {"type":"eq", "fun":self.velocity_constraint_initial}]
 
-        optimum = opt.minimize(self.MSR_action, x0=system, args=(a), constraints=constraint, options={'disp': True,  'maxiter': maxiter})
+        optimum = opt.minimize(self.MSR_action, x0=system, constraints=constraint, options={'disp': True,  'maxiter': maxiter})
 
         return optimum
-
-
 
 class NG_memory(noise_and_potential):
     def __init__(
