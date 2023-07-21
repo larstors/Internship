@@ -492,7 +492,9 @@ class transform_adjust(noise_and_potential):
         #initial = self.solver(m_2=m_2, initial=initial)
         
         # function values
-        Leg = self.solver(m_2=m_2, initial=initial, lambda_=self.lambda_, a=self.a)
+        #Leg = self.solver(m_2=m_2, initial=initial, lambda_=self.lambda_, a=self.a)
+        Leg = self.solver2(m_2=m_2, initial=initial, lambda_=self.lambda_, a=self.a)
+    
         # set up interpolation
         self.Legendre = interp1d(m_2, Leg, kind="linear")
 
@@ -504,9 +506,23 @@ class transform_adjust(noise_and_potential):
         k = opt.root(Eq, initial, args=(m_2, lambda_, a), method="lm").x
 
         return k
+    
+    def solver2(self, m_2, initial, lambda_=0.01, a=10, b=1/2):
+        def Eq2(k, m, a, lambda_):
+            return  k * m- self.D2/2 * k**2 - lambda_ * (np.cosh(a*k) - 1)
+
+        k = np.linspace(-200, 200, 4000)
+
+        K = []
+        for M in m_2:
+            e = Eq2(k, M, a, lambda_)
+            f = np.argmax(e)
+            K.append(k[f])
+    
+
+        return K
 
     def Legendre_transform(self, yDot: np.ndarray, y: np.ndarray):
-
         f1 = self.tau * yDot + y 
         k2 = self.Legendre(f1) #opt.fsolve(self.Opt_Func, initial, args=f1)
         return k2
@@ -567,6 +583,134 @@ class transform_adjust(noise_and_potential):
         optimum = opt.minimize(self.MSR_action, x0=system, constraints=constraint, options={'disp': True,  'maxiter': maxiter})
 
         return optimum
+
+class transform_adjust_2(noise_and_potential):
+    def __init__(self, lambda_, a, tau, D1, D2, N, noise="d", pot="m", tmax=10, sigma=1, b=1, const_i=-1, const_f=0, scaling=1.0):
+        noise_and_potential.__init__(self, sigma, b, scaling=scaling)
+        # parameters
+        self.a = a
+        self.lambda_ = lambda_
+        self.tau = tau
+        self.D1 = D1
+        self.D2 = D2
+        print("lambda \t|\t %e\n a \t|\t %f \n tau \t|\t %f \n D \t|\t %f \n tmax \t|\t %f\n N \t|\t %d\n" % (self.lambda_, self.a, self.tau, self.D2, tmax, N))
+        # characteristic function of noise
+        if noise == "g":
+            self.phi = self.Phi_gauss
+        elif noise == "d":
+            print("Noise: symmetric delta at +- 1")
+            self.phi = self.Phi_delta
+            self.dphi = self.dPhi_delta
+        elif noise == "e":
+            print("Noise: symmetric exponential with characteristic scale 1")
+            self.phi = self.Phi_exp
+            self.dphi = self.dPhi_exp
+        elif noise == "g":
+            print("Noise: gamma distributed with scale %f" % self.b)
+            self.phi = self.Phi_gamma
+            self.dphi = self.dPhi_gamma
+        elif noise == "t":
+            print("Noise: truncated coefficient %f" % self.b)
+            self.phi = self.Phi_truncated
+            self.dphi = self.dPhi_truncated
+
+        # potential
+        if pot == "m":
+            print("Potential: quartic potential q^4/4 - q^2/2\n")
+            self.potential = self.Pot_mexico
+            self.dpotential = self.dPot_mexico
+        if pot == "ms":
+            self.potential = self.Pot_mexico_shift
+            self.dpotential = self.dPot_mexico_shift
+        elif pot == "h":
+            self.potential = self.Pot_harmonic
+            self.dpotential = self.dPot_harmonic
+
+        # initial guess length
+        self.N = N
+
+        #max time
+        self.tmax = tmax
+        
+        # constraints
+        self.const_i = const_i
+        self.const_f = const_f
+
+        # setting up look-up table for Legendre Transform
+        # dummy for m_2 = tau * ydot + y
+        m_2 = np.linspace(-10, 10, 1000)
+        initial = np.ones_like(m_2) * (1e-4)
+        #initial = self.solver(m_2=m_2, initial=initial)
+        
+        # function values
+        #Leg = self.solver(m_2=m_2, initial=initial, lambda_=self.lambda_, a=self.a)
+        Leg = self.solver2(m_2=m_2, initial=initial, lambda_=self.lambda_, a=self.a)
+    
+        # set up interpolation
+        self.Legendre = interp1d(m_2, Leg, kind="linear")
+
+
+
+    def solver(self, m_2, initial, lambda_=0.01, a=10):
+
+        def Eq(k, m, lam, a):
+            return m - self.D2 * k - lambda_ * a * self.dphi(a * k)
+        
+        k = opt.root(Eq, initial, args=(m_2, lambda_, a), method="lm").x
+
+        return k
+    
+    def solver2(self, m_2, initial, lambda_=0.01, a=10, b=1/2):
+        def Eq2(k, m, a, lambda_):
+            #print(k, np.cosh(a*k))
+            return  k * m- self.D2/2 * k**2 - lambda_ * self.phi(a*k)#(np.cosh(a*k) - 1)
+
+        k = np.linspace(-10, 10, 4000)
+
+        K = []
+        for M in m_2:
+            e = Eq2(k, M, a, lambda_)
+            f = np.argmax(e)
+            K.append(k[f])
+    
+
+        return K
+
+    def Legendre_transform(self, yDot: np.ndarray, y: np.ndarray):
+        f1 = self.tau * yDot + y 
+        k2 = self.Legendre(f1) #opt.fsolve(self.Opt_Func, initial, args=f1)
+        return k2
+
+    def MSR_action(self, q):
+        
+        delta_t = self.tmax / self.N
+
+        q[0] = -1
+        q[-1] = 0
+        ydot = np.zeros(self.N-1)
+        qdot = (q[1:] - q[:-1]) / delta_t
+        y = qdot + self.dpotential(q[:-1])
+        ydot[:-1] = (y[1:] - y[:-1]) / delta_t
+        k2 = self.Legendre(self.tau * ydot[:] + y[:])
+
+        #karra = np.linspace(-10, 10, 100)
+        #k2 = [karra[np.argmax([k*y[i] - self.D2/2 * k**2 - self.lambda_*self.phi(self.a*k) for k in karra])] for i in range(len(y))]
+        
+        S = 0
+        
+        for i in range(self.N - 1):
+            S +=  k2[i] * (self.tau * ydot[i] + y[i]) - self.D2 / 2 * k2[i] ** 2 - self.lambda_ * self.phi(self.a * k2[i]) 
+        return S * delta_t
+
+
+    def minimize(self, in_cond = np.zeros(2 * 100), maxiter=1000):
+        system = np.linspace(-1, 0, self.N) #in_cond
+        
+        optimum = opt.minimize(self.MSR_action, x0=system, options={'disp': True})
+
+        return optimum
+
+
 
 class NG_memory(noise_and_potential):
     def __init__(
