@@ -595,9 +595,7 @@ class transform_adjust_2(noise_and_potential):
         self.D2 = D2
         print("lambda \t|\t %e\n a \t|\t %f \n tau \t|\t %f \n D \t|\t %f \n tmax \t|\t %f\n N \t|\t %d\n" % (self.lambda_, self.a, self.tau, self.D2, tmax, N))
         # characteristic function of noise
-        if noise == "g":
-            self.phi = self.Phi_gauss
-        elif noise == "d":
+        if noise == "d":
             print("Noise: symmetric delta at +- 1")
             self.phi = self.Phi_delta
             self.dphi = self.dPhi_delta
@@ -638,13 +636,13 @@ class transform_adjust_2(noise_and_potential):
 
         # setting up look-up table for Legendre Transform
         # dummy for m_2 = tau * ydot + y
-        m_2 = np.linspace(-200, 200, 2000)
+        m_2 = np.linspace(-10000, 10000, 20000)
         initial = np.ones_like(m_2) * (1e-4)
         #initial = self.solver(m_2=m_2, initial=initial)
         
         # function values
         #Leg = self.solver(m_2=m_2, initial=initial, lambda_=self.lambda_, a=self.a)
-        Leg = self.solver2(m_2=m_2, initial=initial, lambda_=self.lambda_, a=self.a)
+        Leg = self.solver2(m_2=m_2, initial=initial, lambda_=self.lambda_, a=self.a, noise=noise)
     
         # set up interpolation
         self.Legendre = interp1d(m_2, Leg, kind="linear")
@@ -660,13 +658,15 @@ class transform_adjust_2(noise_and_potential):
 
         return k
     
-    def solver2(self, m_2, initial, lambda_=0.01, a=10, b=1/2):
+    def solver2(self, m_2, initial, lambda_=0.01, a=10, b=1/2, noise="d"):
         def Eq2(k, m, a, lambda_):
             #print(k, np.cosh(a*k))
             return  k * m- self.D2/2 * k**2 - lambda_ * self.phi(a*k)#(np.cosh(a*k) - 1)
 
-        k = np.linspace(-20, 20, 6000)
-
+        k = np.linspace(-20, 20, 40000)
+        if noise == "g" or noise == "e":
+            k = np.linspace(-1/a + 1e-5, 1/a - 1e-5, 40000)
+        
         K = []
         for M in m_2:
             e = Eq2(k, M, a, lambda_)
@@ -693,6 +693,7 @@ class transform_adjust_2(noise_and_potential):
         qdot = (q[1:] - q[:-1]) / delta_t
         y[:] = qdot + self.dpotential(q[:-1])
         ydot[:-2] = (y[1:-1] - y[:-2]) / delta_t
+        #print(max(np.abs(self.tau * ydot[:] + y[:])))
         k2 = self.Legendre(self.tau * ydot[:] + y[:])
 
         #karra = np.linspace(-10, 10, 100)
