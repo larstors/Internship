@@ -375,21 +375,28 @@ class NG_memory(noise_and_potential):
         return S * dt
 
 
-class NG_no_memory:
+class NG_no_memory(noise_and_potential):
     def __init__(
         self,
         a=10.0,
         b=2.0,
         sigma=1.0,
-        lam=1.0,
+        lam=0.01,
         D1=1.0,
+        D2=1.0,
+        tau=1.0,
         noise="g",
         pot="m",
         dx=1e-4,
-        boundary_cond=[-1, 0, 0.2],
+        boundary_cond=[-1, 0, 0, 0],
         number_timestep=30,
         maxtime=1.0,
+        coupling=1.0,
+        scaling=1.0
     ):
+
+        noise_and_potential.__init__(self, sigma, b, scaling=scaling)
+
         """Initialisation of the class
 
         Args:
@@ -398,11 +405,13 @@ class NG_no_memory:
             sigma (float, optional): variance for gaussian characteristic function. Defaults to 1.0.
             lam (float, optional): poisson shot noise rate. Defaults to 1.0.
             D1 (float, optional): gaussian noise variance on q. Defaults to 1.0.
+            D2 (float, optional): gaussian noise variance on y. Defaults to 1.0.
+            tau (float, optional): inverse OU memory timescale. Defaults to 1.0.
             noise (str, optional): type amplitude distribution, choice between:
                     g for Gaussian,
                     d for delta,
                     e for two-sided exponential,
-                    ga for gamma,
+                    g for gamma,
                     t for truncated.
                     Defaults to "g".
             pot (str, optional): type of potential, choice between:
@@ -418,6 +427,8 @@ class NG_no_memory:
         self.a = a
         self.lamb = lam
         self.D1 = D1
+        self.D2 = D2
+        self.tau = tau
         self.dx = dx
 
         # noise parameters (if needed)
@@ -431,7 +442,7 @@ class NG_no_memory:
             self.phi = self.Phi_delta
         elif noise == "e":
             self.phi = self.Phi_exp
-        elif noise == "ga":
+        elif noise == "g":
             self.phi = self.Phi_gamma
         elif noise == "t":
             self.phi = self.Phi_truncated
@@ -439,14 +450,23 @@ class NG_no_memory:
         # potential
         if pot == "m":
             self.potential = self.Pot_mexico
-        elif pot == "p":
-            self.potential = self.Pot_paper
-        # TODO add more potentials (skewed, or other?)
+            self.dpotential = self.dPot_mexico
+            self.ddpotential = self.ddPot_mexico
+        if pot == "ms":
+            self.potential = self.Pot_mexico_shift
+            self.dpotential = self.dPot_mexico_shift
+        elif pot == "h":
+            self.potential = self.Pot_harmonic
+            self.dpotential = self.dPot_harmonic
+    
 
         # system parameters
         self.boundary_cond = boundary_cond
         self.number_timestep = number_timestep
         self.maxtime = maxtime
+
+        # coupling of the y dimension to the q dimension
+        self.coupling = coupling
 
     def Pot_mexico(self, x):
         """*mexican* hat potential
@@ -530,12 +550,12 @@ class NG_no_memory:
         # q coordinate
         output1 = (
             s[1] * self.D1
-            - misc.derivative(self.potential, s[0], dx=self.dx)
-            + self.lamb * self.a * misc.derivative(self.phi, s[1] * self.a, dx=self.dx)
+            - self.dpotential(s[0])
+            + self.lamb * self.a * self.dPhi_delta(s[1] * self.a)
         )
-
+        
         # k
-        output2 = s[1] * misc.derivative(self.potential, s[0], self.dx, n=2)
+        output2 = s[1] * self.ddpotential(s[0])
 
         # output
         return np.vstack((output1, output2))
@@ -624,19 +644,22 @@ class NG_no_memory:
 # instanton_mem_G, t = mem_G.instanton()
 
 if __name__ == "__main__":
-    nsteps = 100
-    boundary = [-1, 0, 0.2]
+    nsteps = 500
+    boundary = [-1, 0, 0.1]
     l = 0
     a = 1
 
-    mem = NG_memory(lam=l, a=a, maxtime=10, D1=0, D2=1.0, noise="d", pot="m", number_timestep=nsteps, tau=1e-5, boundary_cond=[-1.0, 0, 0, 0, 1e-5, 1e-5])
-    inst, t = mem.instanton()
+    # mem = NG_no_memory(lam=0, a=0, maxtime=100, D1=0, noise="d", pot="m", number_timestep=nsteps, boundary_cond=[-1.0, 0, 0.2])
+    # inst, t = mem.instanton()
 
-    S = mem.action(t[1] - t[0], inst.sol(t)[0], inst.sol(t)[1], inst.sol(t)[2], inst.sol(t)[3])
 
-    print(S)
+    # plt.plot(t, inst.sol(t)[0])
+    # plt.show()
+    #S = mem.action(t[1] - t[0], inst.sol(t)[0], inst.sol(t)[1], inst.sol(t)[2], inst.sol(t)[3])
 
-    """
+    #print(S)
+
+    
 
     nomem_t = NG_no_memory(
         lam=l,
@@ -690,12 +713,12 @@ if __name__ == "__main__":
     plt.ylabel(r"$q$")
 
     print(instanton_no_mem.p)
-    # plt.show()
+    plt.show()
 
 
     # make array of initial guesses
 
-
+    
     guesses = np.array([1e-2 * i for i in range(0, 7)])
 
     solutions = []
@@ -731,16 +754,17 @@ if __name__ == "__main__":
         S = guess_class.action(t[1] - t[0], y.sol(t)[0], y.sol(t)[1])
         action.append(S)
         # if (y.p[0] < 0.01 and y.p[0] > 0):
-        # plt.plot(t, y.sol(t)[0], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
+        plt.plot(t, y.sol(t)[0], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
         # plt.plot(tl, yl.sol(tl)[0], "--")
         # plt.plot(t, y.sol(t)[1], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
         # plt.plot(tl, yl.sol(tl)[1], "--", label="g=%g, p=%g" % (i, yl.sol(tl)[1, -1]))
         # solutions.append(y.p[0])
-        plt.plot(y.sol(t)[0], y.sol(t)[1], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
+        #plt.plot(y.sol(t)[0], y.sol(t)[1], label="g=%g, p=%g" % (i, y.sol(t)[1, -1]))
     plt.xlabel(r"$t$")
     plt.ylabel(r"$q$")
     plt.grid()
     plt.legend()
+    plt.show()
 
     fig_action = plt.figure()
 
@@ -748,8 +772,8 @@ if __name__ == "__main__":
     plt.ylabel(r"$S[q, k_1]$")
     plt.xlabel(r"Initial guess for $k_1$")
     plt.grid()
-
-    
+    plt.show()
+    """
     No Memory
     Optimal paratmeter for lambda=0 seems to be in the range 0.00267308-0.00412278, so say optimum is at 0.332899
     for lambda = 0.01 and 

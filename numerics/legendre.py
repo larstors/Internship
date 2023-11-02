@@ -636,7 +636,7 @@ class transform_adjust_2(noise_and_potential):
 
         # setting up look-up table for Legendre Transform
         # dummy for m_2 = tau * ydot + y
-        m_2 = np.linspace(-10000, 10000, 20000)
+        m_2 = np.linspace(-40000, 40000, 40000)
         initial = np.ones_like(m_2) * (1e-4)
         #initial = self.solver(m_2=m_2, initial=initial)
         
@@ -663,9 +663,9 @@ class transform_adjust_2(noise_and_potential):
             #print(k, np.cosh(a*k))
             return  k * m- self.D2/2 * k**2 - lambda_ * self.phi(a*k)#(np.cosh(a*k) - 1)
 
-        k = np.linspace(-20, 20, 40000)
+        k = np.linspace(-40, 40, 60000)
         if noise == "g" or noise == "e":
-            k = np.linspace(-1/a + 1e-5, 1/a - 1e-5, 40000)
+            k = np.linspace(-1/a + 1e-5, 1/a - 1e-5, 60000)
         
         K = []
         for M in m_2:
@@ -685,9 +685,10 @@ class transform_adjust_2(noise_and_potential):
         
         delta_t = self.tmax / self.N
 
-        q[0] = -1
-        q[1] = -1
-        q[-1] = 0
+        q[0] = self.const_i
+        q[1] = self.const_i
+        q[-2] = self.const_f
+        q[-1] = self.const_f
         y = np.zeros(self.N-1)
         ydot = np.zeros(self.N-1)
         qdot = (q[1:] - q[:-1]) / delta_t
