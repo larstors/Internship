@@ -595,6 +595,8 @@ class transform_adjust_2(noise_and_potential):
         self.D2 = D2
         print("lambda \t|\t %e\n a \t|\t %f \n tau \t|\t %f \n D \t|\t %f \n tmax \t|\t %f\n N \t|\t %d\n" % (self.lambda_, self.a, self.tau, self.D2, tmax, N))
         # characteristic function of noise
+
+        print(const_f, const_i)
         if noise == "d":
             print("Noise: symmetric delta at +- 1")
             self.phi = self.Phi_delta
@@ -708,7 +710,7 @@ class transform_adjust_2(noise_and_potential):
 
 
     def minimize(self, in_cond = np.zeros(2 * 100), maxiter=1000):
-        system = np.linspace(-1, 0, self.N) #in_cond
+        system = np.linspace(self.const_i, self.const_f, self.N) #in_cond
         
         optimum = opt.minimize(self.MSR_action, x0=system, options={'disp': True})
 
